@@ -1,0 +1,43 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import pinoHttp from 'pino-http';
+import { config } from './config.js';
+import { logger } from './logger.js';
+import { errorHandler, notFoundHandler } from './lib/errors.js';
+import { authRouter } from './routes/auth.js';
+import { meRouter } from './routes/me.js';
+import { networkRouter } from './routes/network.js';
+import { walletRouter } from './routes/wallet.js';
+import { signalsRouter } from './routes/signals.js';
+import { brokersRouter } from './routes/brokers.js';
+import { adminRouter } from './routes/admin.js';
+import { paymentsRouter } from './routes/payments.js';
+import { webhooksRouter } from './routes/webhooks.js';
+
+export function createApp(): express.Express {
+  const app = express();
+
+  app.use(helmet());
+  app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
+  app.use(express.json({ limit: '1mb' }));
+  app.use(pinoHttp({ logger }));
+
+  app.get('/health', (_req, res) => {
+    res.json({ ok: true, service: 'aglotrends-api' });
+  });
+
+  app.use('/api/auth', authRouter);
+  app.use('/api/me', meRouter);
+  app.use('/api/network', networkRouter);
+  app.use('/api/wallet', walletRouter);
+  app.use('/api/signals', signalsRouter);
+  app.use('/api/brokers', brokersRouter);
+  app.use('/api/admin', adminRouter);
+  app.use('/api/payments', paymentsRouter);
+  app.use('/api/webhooks', webhooksRouter);
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+  return app;
+}

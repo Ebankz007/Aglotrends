@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aglotrends — Compensation Plan · Calculation Logic</title>
+<style>
+  :root {
+    --blue-900:#0b1f4b;
+    --blue-800:#10306e;
+    --blue-700:#163f96;
+    --blue-600:#1d4ed8;
+    --blue-500:#2563eb;
+    --blue-400:#3b82f6;
+    --blue-300:#93c5fd;
+    --blue-100:#dbeafe;
+    --blue-50:#eff6ff;
+    --sky-500:#0ea5e9;
+    --ink:#0f172a;
+    --ink-soft:#334155;
+    --muted:#64748b;
+    --line:#dbe4f0;
+    --paper:#ffffff;
+    --bg:#f5f8fd;
+    --code-bg:#0b1f4b;
+    --code-ink:#dbeafe;
+    --code-key:#7dd3fc;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.62 "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  }
+  .page {
+    max-width: 900px;
+    margin: 0 auto;
+    background: var(--paper);
+    padding: 56px 64px 72px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.08), 0 12px 40px rgba(15,23,42,.06);
+  }
+
+  /* ---------- header ---------- */
+  .brandbar {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 26px;
+  }
+  .logo {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--blue-500), var(--sky-500));
+    display: grid; place-items: center;
+    color: #fff; font-weight: 800; font-size: 17px;
+    box-shadow: 0 4px 12px rgba(37,99,235,.35);
+  }
+  .brandname { font-weight: 800; letter-spacing: .06em; color: var(--blue-800); font-size: 15px; text-transform: uppercase; }
+  .brandname span { color: var(--muted); font-weight: 600; letter-spacing: .02em; text-transform: none; }
+
+  h1 {
+    font-size: 30px; line-height: 1.15; margin: 0 0 6px;
+    color: var(--blue-900); letter-spacing: -0.02em;
+  }
+  .subtitle { font-size: 17px; color: var(--blue-600); font-weight: 600; margin: 0 0 18px; }
+  .lede { color: var(--ink-soft); margin: 0 0 22px; }
+
+  .meta {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px;
+    border-top: 3px solid var(--blue-500);
+    border-bottom: 1px solid var(--line);
+    padding: 16px 0; margin: 0 0 26px;
+    font-size: 13.5px;
+  }
+  .meta dt { color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; margin: 0; }
+  .meta dd { margin: 2px 0 10px; color: var(--ink); font-weight: 600; }
+
+  .callout {
+    border-left: 4px solid var(--blue-500);
+    background: var(--blue-50);
+    padding: 14px 18px; border-radius: 0 8px 8px 0;
+    margin: 0 0 30px; font-size: 14px; color: var(--ink-soft);
+  }
+  .callout strong { color: var(--blue-800); }
+
+  /* ---------- contents ---------- */
+  .toc { background: var(--blue-50); border: 1px solid var(--blue-100); border-radius: 10px; padding: 20px 24px; margin: 0 0 40px; }
+  .toc h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--blue-700); }
+  .toc ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 32px; }
+  .toc li { margin: 3px 0; color: var(--ink-soft); }
+
+  /* ---------- sections ---------- */
+  h2.sec {
+    font-size: 13px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--blue-600); margin: 46px 0 4px; font-weight: 700;
+  }
+  h3.title {
+    font-size: 22px; color: var(--blue-900); margin: 0 0 14px;
+    padding-bottom: 10px; border-bottom: 2px solid var(--blue-100);
+    letter-spacing: -0.01em;
+  }
+  h4 { font-size: 15px; color: var(--blue-800); margin: 26px 0 8px; }
+  p { margin: 10px 0; }
+  ul { margin: 10px 0; padding-left: 22px; }
+  li { margin: 6px 0; }
+
+  code {
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: 12.5px; background: var(--blue-50);
+    border: 1px solid var(--blue-100); border-radius: 4px;
+    padding: 1px 5px; color: var(--blue-800);
+  }
+  pre {
+    background: var(--code-bg); color: var(--code-ink);
+    padding: 18px 20px; border-radius: 10px; overflow-x: auto;
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: 12.5px; line-height: 1.55; margin: 16px 0;
+    border: 1px solid var(--blue-900);
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  th {
+    background: var(--blue-800); color: #fff; text-align: left;
+    padding: 10px 12px; font-weight: 600; font-size: 12.5px;
+    letter-spacing: .03em;
+  }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:nth-child(even) { background: var(--blue-50); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.total td { font-weight: 700; color: var(--blue-800); background: var(--blue-100) !important; border-top: 2px solid var(--blue-300); }
+
+  .formula {
+    background: var(--blue-50); border: 1px dashed var(--blue-300);
+    border-radius: 8px; padding: 12px 16px; margin: 14px 0;
+    font-family: "Cascadia Code", Consolas, monospace; font-size: 13px;
+    color: var(--blue-800);
+  }
+  .tag {
+    display: inline-block; background: var(--blue-500); color: #fff;
+    font-size: 11px; font-weight: 700; letter-spacing: .05em;
+    padding: 2px 9px; border-radius: 20px; text-transform: uppercase;
+    vertical-align: middle; margin-left: 8px;
+  }
+  .warn {
+    border-left: 4px solid var(--sky-500); background: #f0f9ff;
+    padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0;
+    font-size: 13.5px; color: var(--ink-soft);
+  }
+  hr { border: none; border-top: 1px solid var(--line); margin: 34px 0; }
+  footer { margin-top: 48px; padding-top: 18px; border-top: 3px solid var(--blue-500); font-size: 12.5px; color: var(--muted); }
+
+  @media print {
+    body { background: #fff; }
+    .page { box-shadow: none; max-width: none; padding: 0 8mm; }
+    pre, table, .callout, .toc, .warn { break-inside: avoid; }
+    h2.sec, h3.title { break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="brandbar">
+    <div class="logo">A</div>
+    <div class="brandname">Aglotrends <span>· Copy Trading · Signal Service · Referral/Network · Trader Community</span></div>
+  </div>
+
+  <h1>Compensation Plan</h1>
+  <p class="subtitle">Calculation Logic Extraction</p>
+  <p class="lede">A developer reference containing only the formulas, percentages, thresholds and
+  decision rules needed to build the compensation engine — extracted from the Aglotrends Business
+  Plan &amp; Compensation Plan document.</p>
+
+  <dl class="meta">
+    <div><dt>Source</dt><dd>Aglotrends Business Plan &amp; Compensation Plan (Sections 7, 9–16)</dd></div>
+    <div><dt>Prepared for</dt><dd>Engineering / Backend Implementation</dd></div>
+    <div><dt>Product</dt><dd>Aglotrends Platform</dd></div>
+    <div><dt>Revision</dt><dd>2026-10-10 · rebranded (green → blue)</dd></div>
+  </dl>
+
+  <div class="callout">
+    <strong>Compliance note — read before building.</strong> This plan is <em>recruitment-funded</em>:
+    55% of every registration fee is redistributed as network bonuses. Whether that is lawful depends
+    entirely on jurisdiction and on how the product is presented. Securities-law classification,
+    AML/KYC, data privacy (NDPR), and the Member Agreement are <strong>out of scope of this
+    extraction</strong> and must be confirmed with counsel before go-live.
+  </div>
+
+  <div class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li>Global Constants</li>
+      <li>Registration Fee Allocation</li>
+      <li>Direct Referral Bonus</li>
+      <li>Generation Bonus (Gen 2–6)</li>
+      <li>Rank Bonus Pool &amp; Associate Rank Milestones</li>
+      <li>Leadership Bonus Pool &amp; Leadership Ranks</li>
+      <li>Trading Profit Sharing</li>
+      <li>Matrix Placement &amp; Spillover Logic</li>
+      <li>Active Member, Compression &amp; Rank Maintenance</li>
+      <li>Reserve / Sustainability Model</li>
+      <li>Worked Examples (Test Cases)</li>
+      <li>Consolidated Reconciliation Check</li>
+    </ol>
+  </div>
+
+  <!-- 1 -->
+  <h2 class="sec">Section 1</h2>
+  <h3 class="title">Global Constants</h3>
+  <p>These are the fixed inputs the entire compensation engine is built on. All other calculations
+  derive from these two numbers (fee and funding floor) plus the structural constants.</p>
+  <table>
+    <thead><tr><th>Constant</th><th>Value</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>REGISTRATION_FEE</code></td><td><strong>$20.00 (USD)</strong></td><td>One-time fee paid by every new member on signup.</td></tr>
+      <tr><td><code>MIN_FUNDING</code></td><td><strong>$50.00 (USD)</strong></td><td>Minimum a client must fund into their <strong>own</strong> broker account to activate copy-trading. <strong>Not company revenue.</strong></td></tr>
+      <tr><td><code>MATRIX_WIDTH</code></td><td><strong>3</strong></td><td>Max direct placements per matrix position (3×3 matrix).</td></tr>
+      <tr><td><code>MATRIX_DEPTH</code></td><td><strong>3</strong></td><td>Max levels wide before spillover triggers.</td></tr>
+      <tr><td><code>GENERATION_LEVELS</code></td><td><strong>2–6</strong></td><td>Generation Bonus applies to levels 2 through 6 of a member's downline.</td></tr>
+      <tr><td><code>MAX_LEG_CONTRIBUTION</code></td><td><strong>40%</strong></td><td>Cap on how much a single referral leg may contribute toward Associate Rank Team Volume qualification.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 2 -->
+  <h2 class="sec">Section 2</h2>
+  <h3 class="title">Registration Fee Allocation</h3>
+  <p>Every new member registration triggers a single <strong>$20</strong> payment. This amount is
+  split at the moment of registration into two top-level buckets.</p>
+  <table>
+    <thead><tr><th>Bucket</th><th class="num">% of Fee</th><th class="num">Amount (on $20)</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>Company Operating Reserve</td><td class="num">45%</td><td class="num">$9.00</td><td>Non-distributable. Company revenue.</td></tr>
+      <tr><td>Community Rewards Pool</td><td class="num">55%</td><td class="num">$11.00</td><td>Feeds the 4 bonus types below.</td></tr>
+      <tr class="total"><td>TOTAL</td><td class="num">100%</td><td class="num">$20.00</td><td>Must always reconcile to the full fee.</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Community Rewards Pool breakdown</h4>
+  <p>The 55% ($11.00) is further split into four independently tracked sub-pools:</p>
+  <table>
+    <thead><tr><th>Sub-Pool</th><th class="num">% of Fee</th><th class="num">Amount (on $20)</th><th>Payout Type</th></tr></thead>
+    <tbody>
+      <tr><td>Direct Referral Bonus</td><td class="num">30%</td><td class="num">$6.00</td><td>Instant, per-registration, paid to direct sponsor.</td></tr>
+      <tr><td>Generation Bonus (Gen 2–6)</td><td class="num">10%</td><td class="num">$2.00</td><td>Instant, per-registration, split across 5 generation tiers.</td></tr>
+      <tr><td>Rank / Team Volume Bonus</td><td class="num">8%</td><td class="num">$1.60</td><td>Accrues to a pool; paid only on milestone qualification.</td></tr>
+      <tr><td>Leadership Bonus</td><td class="num">7%</td><td class="num">$1.40</td><td>Accrues to a pool; paid only on leadership rank qualification.</td></tr>
+      <tr class="total"><td>TOTAL COMMUNITY POOL</td><td class="num">55%</td><td class="num">$11.00</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Pseudocode</h4>
+<pre><code>def allocateRegistrationFee(fee = 20.00):
+    company_reserve              = fee * 0.45   # $9.00
+    community_pool               = fee * 0.55   # $11.00
+    direct_referral_pool         = fee * 0.30   # $6.00  -&gt; Section 3
+    generation_pool              = fee * 0.10   # $2.00  -&gt; Section 4
+    rank_pool_contribution       = fee * 0.08   # $1.60  -&gt; Section 5 (accrues)
+    leadership_pool_contribution = fee * 0.07   # $1.40  -&gt; Section 6 (accrues)
+
+    assert (direct_referral_pool + generation_pool
+            + rank_pool_contribution
+            + leadership_pool_contribution) == community_pool
+    return {
+        company_reserve, direct_referral_pool, generation_pool,
+        rank_pool_contribution, leadership_pool_contribution
+    }</code></pre>
+
+  <!-- 3 -->
+  <h2 class="sec">Section 3</h2>
+  <h3 class="title">Direct Referral Bonus</h3>
+  <div class="formula">FORMULA: direct_referral_bonus = registration_fee × 0.30</div>
+  <p>Paid once per new registration, directly and immediately to the Personally Enrolled Member's
+  (PEM) direct <strong>Sponsor</strong>. On the standard $20 fee this equals <strong>$6.00</strong>.</p>
+  <h4>Rules</h4>
+  <ul>
+    <li><strong>Trigger event:</strong> new member completes registration + fee payment.</li>
+    <li><strong>Recipient:</strong> the direct Sponsor only (one level up — not the whole upline).</li>
+    <li><strong>Frequency:</strong> paid once per registration event, not recurring.</li>
+    <li><strong>Qualification gate:</strong> Sponsor must be an <strong>Active Member</strong> (Section 9) to receive payout; if not, apply the <strong>Compression Rule</strong>.</li>
+  </ul>
+  <h4>Pseudocode</h4>
+<pre><code>def payDirectReferralBonus(newMember, fee = 20.00):
+    bonus = fee * 0.30  # $6.00
+    sponsor = newMember.sponsor
+    if sponsor is None:
+        return  # no upline, no payout (edge case, e.g. root account)
+    if not sponsor.isActiveMember():
+        sponsor = getNextQualifiedUpline(sponsor)  # Compression Rule, Section 9
+    if sponsor is not None:
+        creditWallet(sponsor, bonus, type="DIRECT_REFERRAL_BONUS", source=newMember.id)</code></pre>
+
+  <!-- 4 -->
+  <h2 class="sec">Section 4</h2>
+  <h3 class="title">Generation Bonus (Generations 2–6)</h3>
+  <p>A smaller override paid to a Qualified Member for registrations occurring deeper in their
+  downline — from Generation 2 (referrals of their referrals) through Generation 6.</p>
+  <table>
+    <thead><tr><th>Generation</th><th>Relationship</th><th class="num">% of Fee</th><th class="num">Amount (on $20)</th></tr></thead>
+    <tbody>
+      <tr><td>Gen 2</td><td>Referrals of your Referrals</td><td class="num">4.0%</td><td class="num">$0.80</td></tr>
+      <tr><td>Gen 3</td><td>Third tier downline</td><td class="num">2.0%</td><td class="num">$0.40</td></tr>
+      <tr><td>Gen 4</td><td>Fourth tier downline</td><td class="num">1.5%</td><td class="num">$0.30</td></tr>
+      <tr><td>Gen 5</td><td>Fifth tier downline</td><td class="num">1.5%</td><td class="num">$0.30</td></tr>
+      <tr><td>Gen 6</td><td>Sixth tier downline</td><td class="num">1.0%</td><td class="num">$0.20</td></tr>
+      <tr class="total"><td>TOTAL</td><td></td><td class="num">10.0%</td><td class="num">$2.00</td></tr>
+    </tbody>
+  </table>
+  <h4>Rules</h4>
+  <ul>
+    <li><strong>Generation 1</strong> (the direct sponsor) is covered by the Direct Referral Bonus (Section 3), <strong>NOT</strong> this bonus.</li>
+    <li>Each of the 5 generation levels (2–6) is evaluated independently up the tree from the new registrant.</li>
+    <li>A member must be an <strong>Active Member</strong> to receive a Generation Bonus payout for their level.</li>
+    <li>If the upline position at a given generation is NOT an Active Member, that position is skipped ("compressed") and the bonus passes to the next qualified upline position — see Section 9.</li>
+  </ul>
+  <h4>Pseudocode</h4>
+<pre><code>GENERATION_RATES = {
+    2: 0.040,  # $0.80
+    3: 0.020,  # $0.40
+    4: 0.015,  # $0.30
+    5: 0.015,  # $0.30
+    6: 0.010,  # $0.20
+}
+
+def payGenerationBonuses(newMember, fee = 20.00):
+    uplineChain = getUplineChain(newMember, maxDepth = 6)
+    # uplineChain[1] = direct sponsor (Gen 1, handled in Section 3)
+    # uplineChain[2..6] = Gen 2..Gen 6
+    for gen in range(2, 7):
+        position = uplineChain.get(gen)
+        if position is None:
+            continue  # tree not deep enough yet
+        recipient = position
+        if not recipient.isActiveMember():
+            recipient = getNextQualifiedUpline(recipient, stopAtGen = 6)  # compression
+        if recipient is not None:
+            amount = fee * GENERATION_RATES[gen]
+            creditWallet(recipient, amount, type=f"GENERATION_BONUS_GEN{gen}",
+                         source=newMember.id)</code></pre>
+
+  <!-- 5 -->
+  <h2 class="sec">Section 5</h2>
+  <h3 class="title">Rank Bonus Pool &amp; Associate Rank Milestones</h3>
+  <div class="formula">FORMULA: rank_pool += registration_fee × 0.08 &nbsp; (accrues, per registration, company-wide)</div>
+  <p>Unlike the Direct Referral and Generation bonuses, the Rank Bonus is not paid per registration.
+  Instead, 8% of every registration fee ($1.60) accrues into a shared pool. A member receives a
+  one-time milestone reward the <strong>first time</strong> their downline Team Volume crosses an
+  Associate Rank threshold.</p>
+  <table>
+    <thead><tr><th>Associate Rank</th><th class="num">Personal Referrals (min.)</th><th class="num">Team Volume (min.)</th><th class="num">Milestone Reward*</th></tr></thead>
+    <tbody>
+      <tr><td>Rank 1</td><td class="num">3</td><td class="num">12</td><td class="num">$14</td></tr>
+      <tr><td>Rank 2</td><td class="num">7</td><td class="num">40</td><td class="num">$32</td></tr>
+      <tr><td>Rank 3</td><td class="num">15</td><td class="num">130</td><td class="num">$100</td></tr>
+      <tr><td>Rank 4</td><td class="num">25</td><td class="num">700</td><td class="num">$280</td></tr>
+      <tr><td>Rank 5</td><td class="num">35</td><td class="num">2,500</td><td class="num">$800</td></tr>
+      <tr><td>Rank 6</td><td class="num">60</td><td class="num">6,000</td><td class="num">$2,400</td></tr>
+      <tr><td>Rank 7</td><td class="num">100</td><td class="num">17,000</td><td class="num">$10,000</td></tr>
+      <tr><td>Rank 8</td><td class="num">150</td><td class="num">60,000</td><td class="num">$20,000</td></tr>
+    </tbody>
+  </table>
+  <p class="warn">*Illustrative figures from the source document — paid once, on first qualification,
+  subject to available pool balance and company discretion. Flag payouts for manual/admin approval if
+  the pool balance is insufficient — <strong>do not auto-pay past the accrued balance.</strong></p>
+  <h4>Qualification Rules</h4>
+  <ul>
+    <li>A member qualifies for an Associate Rank when <strong>BOTH</strong> the Personal Referrals count <strong>AND</strong> the Team Volume threshold are met (<strong>AND</strong> condition, not OR).</li>
+    <li><strong>Leg Rule:</strong> no single referral leg may contribute more than <strong>40%</strong> of the Team Volume counted toward qualification. If one leg exceeds 40% of total downline volume, only 40%-of-total worth of that leg's volume counts toward the threshold.</li>
+    <li>Ranks are evaluated <strong>bottom-up</strong>: check Rank 8 down to Rank 1, and award the highest rank the member newly qualifies for (in case multiple thresholds are crossed in one update cycle).</li>
+    <li>Once awarded, a rank milestone reward is paid <strong>exactly once per member</strong> ("first qualification" only).</li>
+  </ul>
+  <h4>Pseudocode</h4>
+<pre><code>ASSOCIATE_RANKS = [
+    # (rank_id, min_personal_referrals, min_team_volume, reward_usd)
+    (1,   3,     12,    14),
+    (2,   7,     40,    32),
+    (3,  15,    130,   100),
+    (4,  25,    700,   280),
+    (5,  35,   2500,   800),
+    (6,  60,   6000,  2400),
+    (7, 100,  17000, 10000),
+    (8, 150,  60000, 20000),
+]
+MAX_LEG_CONTRIBUTION = 0.40
+
+def eligibleTeamVolume(member):
+    legs = getReferralLegs(member)          # list of volumes, one per direct leg
+    total = sum(legs)
+    cap = total * MAX_LEG_CONTRIBUTION
+    eligible = sum(min(legVolume, cap) for legVolume in legs)
+    return eligible
+
+def evaluateAssociateRank(member):
+    personalReferrals = countPersonalReferrals(member)
+    teamVolume = eligibleTeamVolume(member)
+    qualifyingRank = None
+    for (rankId, minReferrals, minVolume, reward) in reversed(ASSOCIATE_RANKS):
+        if personalReferrals &gt;= minReferrals and teamVolume &gt;= minVolume:
+            qualifyingRank = (rankId, reward)
+            break
+    if qualifyingRank and qualifyingRank.rankId &gt; member.highestAssociateRank:
+        if rankBonusPool.balance &gt;= qualifyingRank.reward:
+            payFromPool(rankBonusPool, member, qualifyingRank.reward, type="RANK_MILESTONE")
+            member.highestAssociateRank = qualifyingRank.rankId
+        else:
+            flagForAdminReview(member, qualifyingRank)  # pool underfunded</code></pre>
+
+  <!-- 6 -->
+  <h2 class="sec">Section 6</h2>
+  <h3 class="title">Leadership Bonus Pool &amp; Leadership Ranks</h3>
+  <div class="formula">FORMULA: leadership_pool += registration_fee × 0.07 &nbsp; (accrues, per registration, company-wide)</div>
+  <p>7% of every registration fee ($1.40) accrues into a Leadership Bonus Pool. Leadership Ranks sit
+  above Associate Ranks and reward members who have developed multiple qualified leaders within their
+  own team. Rewards in the source document are <strong>non-cash</strong> (devices, trips, vehicles,
+  housing) — model these as a <strong>reward type/SKU</strong>, not a currency amount.</p>
+  <table>
+    <thead><tr><th class="num">#</th><th>Leadership Rank</th><th>Requirement</th><th>Reward Type</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>Bronze Leader</td><td>2 legs · 3 team members at Associate Rank 3</td><td>Smartphone</td></tr>
+      <tr><td class="num">2</td><td>Silver Leader</td><td>2 legs · 3 team members at Associate Rank 4</td><td>Laptop</td></tr>
+      <tr><td class="num">3</td><td>Gold Leader</td><td>2 legs · 3 team members at Associate Rank 5</td><td>Luxury Watch</td></tr>
+      <tr><td class="num">4</td><td>Platinum Leader</td><td>2 legs · 3 team members at Associate Rank 6</td><td>International Trip</td></tr>
+      <tr><td class="num">5</td><td>Diamond Leader</td><td>2 legs · 3 team members at Associate Rank 7</td><td>Luxury Vehicle</td></tr>
+      <tr><td class="num">6</td><td>Crown Diamond</td><td>2 legs · 3 team members at Associate Rank 8</td><td>Home / Apartment</td></tr>
+    </tbody>
+  </table>
+  <h4>Qualification Rules</h4>
+  <ul>
+    <li><strong>Self-qualification gate:</strong> the member must personally already hold the Associate Rank being required of their team (e.g. a Crown Diamond candidate must already be Associate Rank 8 themselves).</li>
+    <li><strong>Leg spread rule:</strong> the 3 qualifying team members must be spread across at least 2 separate referral legs — a single leg holding all 3 does NOT qualify.</li>
+    <li>"Team members at Associate Rank N" means: at least 3 distinct downline members (not the candidate) who have each individually reached at least Associate Rank N (Section 5).</li>
+    <li>Leadership Ranks are evaluated in the same "highest achieved" pattern as Associate Ranks: check top-down, award once, mark as achieved permanently (see Section 9, Rank Maintenance).</li>
+  </ul>
+  <h4>Pseudocode</h4>
+<pre><code>LEADERSHIP_RANKS = [
+    # (rank_id, name, required_associate_rank_of_team, min_legs, min_team_members, reward_sku)
+    (1, "Bronze Leader",   3, 2, 3, "SMARTPHONE"),
+    (2, "Silver Leader",   4, 2, 3, "LAPTOP"),
+    (3, "Gold Leader",     5, 2, 3, "LUXURY_WATCH"),
+    (4, "Platinum Leader", 6, 2, 3, "INTERNATIONAL_TRIP"),
+    (5, "Diamond Leader",  7, 2, 3, "LUXURY_VEHICLE"),
+    (6, "Crown Diamond",   8, 2, 3, "HOME_APARTMENT"),
+]
+
+def evaluateLeadershipRank(member):
+    qualifying = None
+    for rank in reversed(LEADERSHIP_RANKS):
+        if member.highestAssociateRank &lt; rank.required_associate_rank_of_team:
+            continue  # self-qualification gate fails
+        teamAtRank = [m for m in getDownline(member)
+                      if m.highestAssociateRank &gt;= rank.required_associate_rank_of_team]
+        legsUsed = distinctLegsOf(teamAtRank, member)
+        if len(teamAtRank) &gt;= rank.min_team_members and len(legsUsed) &gt;= rank.min_legs:
+            qualifying = rank
+            break
+    if qualifying and qualifying.rank_id &gt; member.highestLeadershipRank:
+        issueNonCashReward(member, qualifying.reward_sku, fundedBy="leadershipBonusPool")
+        member.highestLeadershipRank = qualifying.rank_id</code></pre>
+
+  <!-- 7 -->
+  <h2 class="sec">Section 7</h2>
+  <h3 class="title">Trading Profit Sharing</h3>
+  <p>Completely separate revenue stream from the registration fee. Applies <strong>only to realized
+  trading profit</strong> on a client's connected/funded broker account — never on principal, and
+  never as a guaranteed or fixed return.</p>
+  <table>
+    <thead><tr><th>Party</th><th class="num">Share</th><th>Basis</th></tr></thead>
+    <tbody>
+      <tr><td>Client (account holder)</td><td class="num">60%</td><td>Retains majority of realized profit on their own funded account.</td></tr>
+      <tr><td>Sponsor Override</td><td class="num">10%</td><td>Paid to the client's direct Sponsor.</td></tr>
+      <tr><td>Company</td><td class="num">30%</td><td>Funds trade execution, AI infra, trader oversight, risk mgmt.</td></tr>
+      <tr class="total"><td>TOTAL</td><td class="num">100%</td><td>Must reconcile exactly — no remainder.</td></tr>
+    </tbody>
+  </table>
+  <div class="formula">FORMULA: IF realized_profit &gt; 0 → client = profit×0.60 · sponsor = profit×0.10 · company = profit×0.30</div>
+  <h4>Rules</h4>
+  <ul>
+    <li><strong>Trigger:</strong> evaluated per settlement period (e.g. monthly) on <strong>realized profit only</strong> — unrealized/floating P&amp;L does not trigger a split.</li>
+    <li>If <code>realized_profit ≤ 0</code> (loss or breakeven) for the period: <strong>NO split occurs</strong>, no party is paid or charged a share.</li>
+    <li>Sponsor Override (10%) goes to the client's direct Sponsor only — this is independent of the Sponsor's Active Member status unless business rules say otherwise (not specified in source; flag for compliance confirmation).</li>
+    <li>This calculation <strong>must never be presented as a fixed/guaranteed return</strong> in any UI copy or generated statement.</li>
+  </ul>
+  <h4>Pseudocode</h4>
+<pre><code>def distributeTradingProfitShare(client, periodRealizedProfit):
+    if periodRealizedProfit &lt;= 0:
+        return  # no split on losses/breakeven — do not charge or pay anyone
+    clientShare  = periodRealizedProfit * 0.60
+    sponsorShare = periodRealizedProfit * 0.10
+    companyShare = periodRealizedProfit * 0.30
+    assert round(clientShare + sponsorShare + companyShare, 2) == round(periodRealizedProfit, 2)
+    creditClientLedger(client, clientShare, type="TRADING_PROFIT_RETAINED")
+    if client.sponsor is not None:
+        creditWallet(client.sponsor, sponsorShare, type="SPONSOR_OVERRIDE", source=client.id)
+    recordCompanyRevenue(companyShare, type="TRADING_PERFORMANCE_SHARE")</code></pre>
+
+  <!-- 8 -->
+  <h2 class="sec">Section 8</h2>
+  <h3 class="title">Matrix Placement &amp; Spillover Logic</h3>
+  <p>New Personally Enrolled Members (PEMs) are placed into a <strong>forced 3×3 matrix</strong>
+  beneath their Sponsor.</p>
+  <h4>Rules</h4>
+  <ul>
+    <li>Each matrix position may hold up to <strong>3</strong> direct placements (<code>MATRIX_WIDTH = 3</code>).</li>
+    <li>The matrix extends up to <strong>3</strong> levels wide/deep from a given Sponsor before overflow (<code>MATRIX_DEPTH = 3</code>).</li>
+    <li><strong>Spillover:</strong> when a Sponsor's direct positions are full, additional referrals spill over to the next open position within that Sponsor's downline structure.</li>
+    <li>Spillover placement should prioritize <strong>balanced structure</strong> across legs — i.e. fill the least-populated leg first — rather than stacking depth under a single line.</li>
+  </ul>
+  <h4>Pseudocode</h4>
+<pre><code>def placeNewMember(newMember, sponsor):
+    if sponsor.directPlacements.count &lt; MATRIX_WIDTH:  # &lt; 3
+        sponsor.directPlacements.add(newMember)
+        return sponsor
+    # Sponsor's direct row is full -&gt; spill over
+    candidatePositions = getOpenPositionsInMatrix(sponsor, maxDepth = MATRIX_DEPTH)
+    target = pickLeastPopulatedLeg(candidatePositions)  # balance across legs
+    target.directPlacements.add(newMember)
+    return target</code></pre>
+
+  <!-- 9 -->
+  <h2 class="sec">Section 9</h2>
+  <h3 class="title">Active Member, Compression &amp; Rank Maintenance Rules</h3>
+  <h4>9.1 — Active Member Status</h4>
+  <p>A member must be an <strong>Active Member</strong> (good standing per the published activity
+  policy — not in breach of the Member Agreement) to remain eligible for ongoing Generation, Rank,
+  and Leadership Bonus payouts. Specific numeric activity thresholds are <strong>not defined in the
+  source document</strong> — implement as a configurable flag/policy (e.g. <code>isActiveMember</code>
+  boolean, or a <code>lastActivityDate</code> + inactivity window) pending compliance sign-off.</p>
+  <h4>9.2 — Compression Rule</h4>
+  <p>If the upline position that would normally receive a Generation Bonus is NOT an Active Member,
+  that position is skipped ("compressed") and the bonus passes to the next qualified (Active) upline
+  position — ensuring payouts always reach an Active, Qualified Member.</p>
+<pre><code>def getNextQualifiedUpline(position, stopAtGen = 6):
+    current = position.uplineParent
+    depth = 0
+    while current is not None and depth &lt; stopAtGen:
+        if current.isActiveMember():
+            return current
+        current = current.uplineParent
+        depth += 1
+    return None  # no qualified upline found within compression window -&gt; bonus is not paid</code></pre>
+  <h4>9.3 — Rank Maintenance</h4>
+  <p>Associate and Leadership Ranks, once achieved, are <strong>permanent for recognition/title
+  purposes</strong> (highest historical rank). However, where a rank unlocks a <strong>recurring
+  benefit</strong> (as opposed to the one-time milestone reward already paid), continued eligibility
+  for that recurring benefit requires maintaining Active Member status.</p>
+<pre><code>member.highestAssociateRank   # never decreases — permanent title
+member.highestLeadershipRank  # never decreases — permanent title
+
+def isEligibleForRecurringRankBenefit(member):
+    return member.isActiveMember()  # title persists regardless; recurring perks gated on activity</code></pre>
+
+  <!-- 10 -->
+  <h2 class="sec">Section 10</h2>
+  <h3 class="title">Reserve / Sustainability Model</h3>
+  <p>Governs how each registration fee is bucketed at the system/accounting level. This is the
+  <strong>authoritative source-of-truth split</strong> that Section 2 implements per-transaction.</p>
+  <table>
+    <thead><tr><th>Reserve</th><th>Source</th><th>Funding Pattern</th></tr></thead>
+    <tbody>
+      <tr><td>Company Operating Reserve</td><td>45% of each fee</td><td>Non-distributable.</td></tr>
+      <tr><td>Direct &amp; Generation Bonus Pool</td><td>40% of each fee</td><td>Paid out per-registration; fully funded by that same transaction (30% direct + 10% generation).</td></tr>
+      <tr><td>Rank Bonus Pool</td><td>8% of each fee</td><td>Accumulates across ALL registrations company-wide; balance-monitored, not guaranteed per-payout.</td></tr>
+      <tr><td>Leadership Bonus Pool</td><td>7% of each fee</td><td>Accumulates across ALL registrations company-wide; balance-monitored, not guaranteed per-payout.</td></tr>
+    </tbody>
+  </table>
+  <h4>Implementation note — pool solvency check</h4>
+  <p>The Rank Bonus Pool and Leadership Bonus Pool are <strong>shared, accumulating pools</strong>
+  funded by ALL registrations, not per-referral. Before paying out a Rank/Leadership milestone, the
+  system <strong>MUST</strong> check <code>pool.balance &gt;= reward_amount</code>. If insufficient,
+  <strong>queue/flag the payout rather than auto-paying</strong> — the source document explicitly
+  states these rewards are "not guaranteed" and "subject to the pool's available balance."</p>
+<pre><code>def onRegistrationFeeReceived(fee = 20.00):
+    companyReserve.credit(fee * 0.45)
+    directGenerationPool.credit(fee * 0.40)   # settled immediately per Sections 3 &amp; 4
+    rankBonusPool.credit(fee * 0.08)          # accumulates, Section 5
+    leadershipBonusPool.credit(fee * 0.07)    # accumulates, Section 6</code></pre>
+
+  <!-- 11 -->
+  <h2 class="sec">Section 11</h2>
+  <h3 class="title">Worked Examples (Test Cases)</h3>
+  <h4>Test Case 1 — Single Direct Referral</h4>
+  <p><strong>Input:</strong> Amaka refers one new member, Tunde, who pays the $20 registration fee.</p>
+  <table>
+    <thead><tr><th>Recipient</th><th>Bonus Type</th><th class="num">Expected Amount</th></tr></thead>
+    <tbody>
+      <tr><td>Amaka (Sponsor)</td><td>Direct Referral Bonus</td><td class="num">$6.00</td></tr>
+      <tr><td>Company</td><td>Operating Reserve</td><td class="num">$9.00</td></tr>
+      <tr><td>Rank + Leadership Pools</td><td>Accrued (not yet paid out)</td><td class="num">$3.00</td></tr>
+      <tr><td>Generation Pool (Amaka's upline)</td><td>Accrued across Gen 2–6</td><td class="num">$2.00</td></tr>
+      <tr class="total"><td>TOTAL</td><td></td><td class="num">$20.00</td></tr>
+    </tbody>
+  </table>
+  <h4>Test Case 2 — Trading Profit Share</h4>
+  <p><strong>Input:</strong> Chidi funds his broker account with the $50 minimum. In a given month,
+  the connected strategy realizes $200 in trading profit on his account.</p>
+  <table>
+    <thead><tr><th>Recipient</th><th class="num">Share</th><th class="num">Expected Amount</th></tr></thead>
+    <tbody>
+      <tr><td>Chidi (Client)</td><td class="num">60%</td><td class="num">$120.00</td></tr>
+      <tr><td>Chidi's Sponsor</td><td class="num">10%</td><td class="num">$20.00</td></tr>
+      <tr><td>Company</td><td class="num">30%</td><td class="num">$60.00</td></tr>
+      <tr class="total"><td>TOTAL</td><td class="num">100%</td><td class="num">$200.00</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Edge case:</strong> if the account instead realizes a loss that month
+  (<code>periodRealizedProfit ≤ 0</code>), expected result is that <strong>NO profit share is paid to
+  any party</strong>.</p>
+  <h4>Suggested unit test skeleton</h4>
+<pre><code>def test_single_direct_referral():
+    result = allocateRegistrationFee(20.00)
+    assert result.direct_referral_pool == 6.00
+    assert result.company_reserve == 9.00
+    assert result.generation_pool == 2.00
+    assert (result.rank_pool_contribution
+            + result.leadership_pool_contribution) == 3.00
+
+def test_trading_profit_share_positive():
+    shares = distributeTradingProfitShare(profit=200.00)
+    assert shares.client  == 120.00
+    assert shares.sponsor == 20.00
+    assert shares.company == 60.00
+
+def test_trading_profit_share_loss():
+    shares = distributeTradingProfitShare(profit=-50.00)
+    assert shares is None  # no split on loss</code></pre>
+
+  <!-- 12 -->
+  <h2 class="sec">Section 12</h2>
+  <h3 class="title">Consolidated Reconciliation Check</h3>
+  <p>Run these two invariants as automated sanity checks on every deploy / config change. Both must
+  hold <strong>exactly (to the cent)</strong> for the plan to be internally consistent.</p>
+  <table>
+    <thead><tr><th>Check</th><th>Formula</th><th>Expected</th></tr></thead>
+    <tbody>
+      <tr><td>Registration fee split</td><td><code>company_reserve% + direct_referral% + generation% + rank% + leadership%</code></td><td>45 + 30 + 10 + 8 + 7 = <strong>100%</strong></td></tr>
+      <tr><td>Trading profit split</td><td><code>client% + sponsor% + company%</code></td><td>60 + 10 + 30 = <strong>100%</strong></td></tr>
+    </tbody>
+  </table>
+<pre><code>def test_reconciliation():
+    fee_total = 0.45 + 0.30 + 0.10 + 0.08 + 0.07
+    assert round(fee_total, 4) == 1.0000
+    profit_total = 0.60 + 0.10 + 0.30
+    assert round(profit_total, 4) == 1.0000</code></pre>
+  <h4>Not covered in this extraction</h4>
+  <p>AML/KYC, data privacy (NDPR), securities-law classification, and formal Member Agreement terms
+  are compliance/legal matters from Section 17 of the source document, not calculation logic — they
+  are intentionally excluded here. <strong>Confirm regulatory classification with counsel before
+  go-live.</strong></p>
+
+  <footer>
+    Aglotrends — Compensation Plan · Calculation Logic Extraction · Rebranded 2026-10-10 ·
+    Copy Trading · Signal Service · Referral/Network · Trader Community
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,10 @@
+[
+  { "email": "superadmin@example.com", "fullName": "Super Admin", "role": "SUPERADMIN", "status": "ACTIVE", "sponsorEmail": null, "password": "CHANGE_ME_superadmin", "primary": true },
+  { "email": "admin@example.com", "fullName": "Operations Admin", "role": "ADMIN", "status": "ACTIVE", "sponsorEmail": "superadmin@example.com", "password": "CHANGE_ME_admin", "primary": true },
+  { "email": "client@example.com", "fullName": "Client Member", "role": "MEMBER", "status": "ACTIVE", "sponsorEmail": "admin@example.com", "password": "CHANGE_ME_client", "primary": true },
+  { "email": "root@example.test", "fullName": "Root Admin", "role": "SUPERADMIN", "status": "ACTIVE", "sponsorEmail": null, "password": "CHANGE_ME_fixture" },
+  { "email": "admin@example.test", "fullName": "Operations Admin", "role": "ADMIN", "status": "ACTIVE", "sponsorEmail": "root@example.test", "password": "CHANGE_ME_fixture" },
+  { "email": "admintest@example.test", "fullName": "Admin Test", "role": "ADMIN", "status": "ACTIVE", "sponsorEmail": "root@example.test", "password": "CHANGE_ME_fixture" },
+  { "email": "clienttest@example.test", "fullName": "Client Test", "role": "MEMBER", "status": "ACTIVE", "sponsorEmail": "root@example.test", "password": "CHANGE_ME_fixture" },
+  { "email": "demo@example.test", "fullName": "Demo Member", "role": "MEMBER", "status": "ACTIVE", "sponsorEmail": "root@example.test", "password": "CHANGE_ME_fixture" }
+]

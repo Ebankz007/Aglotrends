@@ -1,0 +1,716 @@
+/**
+ * API client. The session lives in an httpOnly cookie set by the API — the
+ * browser attaches it to every same-origin `/api/*` call (proxied to the
+ * backend by next.config.ts). JavaScript never sees the token, so an XSS has
+ * nothing to exfiltrate. The bearer path exists on the server for non-browser
+ * clients; the web app does not use it.
+ */
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+  if (!res.ok) {
+    let body: { error?: string; message?: string } | null = null;
+    try {
+      body = (await res.json()) as { error?: string; message?: string };
+    } catch {
+      // non-JSON error body
+    }
+    throw new ApiError(
+      res.status,
+      body?.error ?? "REQUEST_ERROR",
+      body?.message ?? `Request failed (${res.status})`,
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
+/* ------------------------------------------------------------------ types */
+
+export type UserRole = "MEMBER" | "ADMIN" | "SUPERADMIN";
+export type AccountStatus = "PENDING" | "ACTIVE" | "SUSPENDED";
+
+/** ADMIN and SUPERADMIN both reach the admin console. */
+export function isAdminRole(role: UserRole | undefined | null): boolean {
+  return role === "ADMIN" || role === "SUPERADMIN";
+}
+
+export interface UserDto {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  status: AccountStatus;
+  sponsorId: string | null;
+  /** False until the §1 registration fee is settled — gates compensation. */
+  isActiveMember: boolean;
+  highestAssociateRank: number;
+  highestLeadershipRank: number;
+}
+
+export interface LedgerEntryDto {
+  id: string;
+  userId: string;
+  type: string;
+  amountCents: number;
+  balanceAfterCents: number;
+  sourceUserId: string | null;
+  refType: string | null;
+  refId: string | null;
+  description: string | null;
+  createdAt: string;
+}
+
+export interface NotificationDto {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationSettingsDto {
+  emailEnabled: boolean;
+  whatsappEnabled: boolean;
+  telegramEnabled: boolean;
+  whatsappNumber: string | null;
+  telegramChatId: string | null;
+}
+
+export interface NetworkSummaryDto {
+  personalReferrals: number;
+  rawTeamVolume: number;
+  eligibleTeamVolume: number;
+  directReferrals: string[];
+  downlineCount: number;
+  highestAssociateRank: number;
+  highestLeadershipRank: number;
+}
+
+export interface RankProgressDto {
+  personalReferrals: number;
+  eligibleTeamVolume: number;
+  highestAssociateRank: number;
+  highestLeadershipRank: number;
+  nextAssociate: {
+    rankId: number;
+    minPersonalReferrals: number;
+    minTeamVolume: number;
+    rewardCents: number;
+    referralsMet: boolean;
+    volumeMet: boolean;
+  } | null;
+  nextLeadership: {
+    rankId: number;
+    name: string;
+    requiredAssociateRank: number;
+    minLegs: number;
+    minTeamMembers: number;
+    rewardSku: string;
+  } | null;
+}
+
+export interface PayoutDto {
+  id: string;
+  userId: string;
+  type: string;
+  amountCents: number;
+  status: "REQUESTED" | "APPROVED" | "REJECTED" | "PAID";
+  method: string | null;
+  details: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface SignalDto {
+  id: string;
+  authorId: string | null;
+  title: string;
+  instrument: string;
+  direction: "BUY" | "SELL" | "NEUTRAL";
+  entryPrice: string | null;
+  stopLoss: string | null;
+  takeProfit: string | null;
+  timeframe: string | null;
+  notes: string | null;
+  status: "DRAFT" | "PUBLISHED" | "CLOSED";
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrokerLinkDto {
+  id: string;
+  name: string;
+  url: string;
+  description: string | null;
+  logoUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StrategyDto {
+  id: string;
+  name: string;
+  traderName: string;
+  description: string | null;
+  avatarUrl: string | null;
+  riskLevel: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface BrokerAccountDto {
+  id: string;
+  userId: string;
+  brokerLinkId: string;
+  accountRef: string;
+  status: "PENDING" | "VERIFIED" | "REJECTED";
+  fundedAmountCents: number;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminMemberDto {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  status: AccountStatus;
+  sponsorId: string | null;
+  isActiveMember: boolean;
+  highestAssociateRank: number;
+  highestLeadershipRank: number;
+  createdAt: string;
+}
+
+export interface SettlementDto {
+  id: string;
+  userId: string;
+  periodStart: string;
+  periodEnd: string;
+  realizedProfitCents: number;
+  clientCents: number;
+  sponsorCents: number;
+  companyCents: number;
+  status: "RECORDED" | "DISTRIBUTED";
+  recordedBy: string | null;
+  createdAt: string;
+}
+
+export interface RankAwardDto {
+  id: string;
+  userId: string;
+  kind: "ASSOCIATE" | "LEADERSHIP";
+  rankId: number;
+  rewardCents: number | null;
+  rewardSku: string | null;
+  status: "PAID" | "FLAGGED" | "APPROVED" | "REJECTED";
+  approvedBy: string | null;
+  approvedAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface PoolLedgerEntryDto {
+  id: string;
+  pool: "RANK" | "LEADERSHIP";
+  entryType: "ACCRUAL" | "PAYOUT";
+  amountCents: number;
+  balanceAfterCents: number;
+  refType: string | null;
+  refId: string | null;
+  createdAt: string;
+}
+
+export interface AuditEntryDto {
+  id: string;
+  actorId: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  metadata: unknown;
+  ip: string | null;
+  createdAt: string;
+}
+
+/* ------------------------------------------------------------------- auth */
+
+export interface RegisterInput {
+  email: string;
+  password: string;
+  fullName: string;
+  phone?: string;
+  country?: string;
+  sponsorEmail?: string;
+}
+
+export async function register(
+  input: RegisterInput,
+): Promise<{ user: UserDto; paymentRequired: boolean }> {
+  return request<{ user: UserDto; paymentRequired: boolean }>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function login(email: string, password: string): Promise<{ user: UserDto }> {
+  return request<{ user: UserDto }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await request<{ ok: true }>("/auth/logout", { method: "POST", body: JSON.stringify({}) });
+  } catch {
+    // Clearing the cookie is best-effort; the UI navigates away regardless.
+  }
+}
+
+/** The logged-in user, or null when there is no valid session. */
+export async function fetchMe(): Promise<UserDto | null> {
+  try {
+    const data = await request<{ user: UserDto }>("/auth/me");
+    return data.user;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return null;
+    throw err;
+  }
+}
+
+/* ------------------------------------------------------- me / preferences */
+
+export async function fetchMyWallet(): Promise<number> {
+  const data = await request<{ balanceCents: number }>("/me/wallet");
+  return data.balanceCents;
+}
+
+export async function fetchMyLedger(): Promise<LedgerEntryDto[]> {
+  const data = await request<{ entries: LedgerEntryDto[] }>("/me/ledger");
+  return data.entries;
+}
+
+export async function fetchMyNotifications(): Promise<NotificationDto[]> {
+  const data = await request<{ notifications: NotificationDto[] }>("/me/notifications");
+  return data.notifications;
+}
+
+export async function fetchNotificationSettings(): Promise<NotificationSettingsDto> {
+  const data = await request<{ settings: NotificationSettingsDto }>("/me/notification-settings");
+  return data.settings;
+}
+
+export async function saveNotificationSettings(
+  input: Partial<NotificationSettingsDto>,
+): Promise<NotificationSettingsDto> {
+  const data = await request<{ settings: NotificationSettingsDto }>("/me/notification-settings", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return data.settings;
+}
+
+/* --------------------------------------------------------------- network */
+
+export async function fetchNetwork(): Promise<NetworkSummaryDto> {
+  return request<NetworkSummaryDto>("/network");
+}
+
+export async function fetchMatrix(): Promise<{ position: string; children: string[] }> {
+  return request<{ position: string; children: string[] }>("/network/matrix");
+}
+
+export async function fetchRankProgress(): Promise<RankProgressDto> {
+  return request<RankProgressDto>("/network/ranks");
+}
+
+/* ---------------------------------------------------------------- wallet */
+
+export async function fetchWallet(): Promise<number> {
+  const data = await request<{ balanceCents: number }>("/wallet");
+  return data.balanceCents;
+}
+
+export async function fetchLedger(): Promise<LedgerEntryDto[]> {
+  const data = await request<{ entries: LedgerEntryDto[] }>("/wallet/ledger");
+  return data.entries;
+}
+
+export async function fetchMyPayouts(): Promise<PayoutDto[]> {
+  const data = await request<{ payouts: PayoutDto[] }>("/wallet/payouts");
+  return data.payouts;
+}
+
+export async function requestPayout(input: {
+  amountCents: number;
+  method?: string;
+  details?: string;
+}): Promise<PayoutDto> {
+  const data = await request<{ payout: PayoutDto }>("/wallet/payouts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.payout;
+}
+
+/* -------------------------------------------------------------- payments */
+
+export type PaymentPurpose = "REGISTRATION" | "DEPOSIT";
+export type PaymentStatus = "PENDING" | "PAID" | "EXPIRED" | "FAILED";
+
+export interface PaymentDto {
+  id: string;
+  userId: string;
+  purpose: PaymentPurpose;
+  amountCents: number;
+  currency: string;
+  status: PaymentStatus;
+  paymentRef: string;
+  gatewayTxid: string | null;
+  paymentUrl: string | null;
+  txHash: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export async function fetchMyPayments(): Promise<PaymentDto[]> {
+  const data = await request<{ payments: PaymentDto[] }>("/payments");
+  return data.payments;
+}
+
+/** Create the §1 registration-fee invoice ($20, fixed by the server). */
+export async function createRegistrationPayment(): Promise<PaymentDto> {
+  const data = await request<{ payment: PaymentDto }>("/payments/registration", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.payment;
+}
+
+/** Create a crypto-deposit invoice; the wallet is credited when it confirms. */
+export async function createDeposit(amountCents: number): Promise<PaymentDto> {
+  const data = await request<{ payment: PaymentDto }>("/payments/deposit", {
+    method: "POST",
+    body: JSON.stringify({ amountCents }),
+  });
+  return data.payment;
+}
+
+/** A fresh checkout URL for a pending invoice (the gateway link expires). */
+export async function refreshCheckout(
+  paymentId: string,
+): Promise<{ paymentUrl: string; refreshed: boolean }> {
+  return request<{ paymentUrl: string; refreshed: boolean }>(`/payments/${paymentId}/checkout`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+/* --------------------------------------------------------------- signals */
+
+export async function fetchSignals(): Promise<SignalDto[]> {
+  const data = await request<{ signals: SignalDto[] }>("/signals");
+  return data.signals;
+}
+
+export async function fetchSignal(id: string): Promise<SignalDto> {
+  const data = await request<{ signal: SignalDto }>(`/signals/${id}`);
+  return data.signal;
+}
+
+/* --------------------------------------------------------------- brokers */
+
+export async function fetchBrokers(): Promise<BrokerLinkDto[]> {
+  const data = await request<{ brokers: BrokerLinkDto[] }>("/brokers");
+  return data.brokers;
+}
+
+export async function fetchStrategies(): Promise<StrategyDto[]> {
+  const data = await request<{ strategies: StrategyDto[] }>("/brokers/strategies");
+  return data.strategies;
+}
+
+export async function fetchMyBrokerAccounts(): Promise<BrokerAccountDto[]> {
+  const data = await request<{ accounts: BrokerAccountDto[] }>("/brokers/accounts");
+  return data.accounts;
+}
+
+export async function addBrokerAccount(input: {
+  brokerLinkId: string;
+  accountRef: string;
+  fundedAmountCents?: number;
+  notes?: string;
+}): Promise<BrokerAccountDto> {
+  const data = await request<{ account: BrokerAccountDto }>("/brokers/accounts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.account;
+}
+
+/* ----------------------------------------------------------------- admin */
+
+export async function fetchAdminMembers(): Promise<AdminMemberDto[]> {
+  const data = await request<{ members: AdminMemberDto[] }>("/admin/members");
+  return data.members;
+}
+
+export async function updateAdminMember(
+  memberId: string,
+  patch: { role?: UserRole; status?: AccountStatus; isActiveMember?: boolean },
+): Promise<AdminMemberDto> {
+  const data = await request<{ member: AdminMemberDto }>(`/admin/members/${memberId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  return data.member;
+}
+
+export async function fetchAdminBrokerLinks(): Promise<BrokerLinkDto[]> {
+  const data = await request<{ brokers: BrokerLinkDto[] }>("/admin/broker-links");
+  return data.brokers;
+}
+
+export async function createBrokerLink(input: {
+  name: string;
+  url: string;
+  description?: string;
+  sortOrder?: number;
+}): Promise<BrokerLinkDto> {
+  const data = await request<{ broker: BrokerLinkDto }>("/admin/broker-links", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.broker;
+}
+
+export async function updateBrokerLink(
+  id: string,
+  patch: Partial<Pick<BrokerLinkDto, "name" | "url" | "description" | "isActive" | "sortOrder">>,
+): Promise<BrokerLinkDto> {
+  const data = await request<{ broker: BrokerLinkDto }>(`/admin/broker-links/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  return data.broker;
+}
+
+export async function deactivateBrokerLink(id: string): Promise<BrokerLinkDto> {
+  const data = await request<{ broker: BrokerLinkDto }>(`/admin/broker-links/${id}`, {
+    method: "DELETE",
+  });
+  return data.broker;
+}
+
+export async function fetchAdminBrokerAccounts(): Promise<BrokerAccountDto[]> {
+  const data = await request<{ accounts: BrokerAccountDto[] }>("/admin/broker-accounts");
+  return data.accounts;
+}
+
+export async function verifyBrokerAccount(
+  id: string,
+  status: "VERIFIED" | "REJECTED",
+  notes?: string,
+): Promise<BrokerAccountDto> {
+  const data = await request<{ account: BrokerAccountDto }>(`/admin/broker-accounts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, notes }),
+  });
+  return data.account;
+}
+
+export async function fetchAdminSignals(): Promise<SignalDto[]> {
+  const data = await request<{ signals: SignalDto[] }>("/admin/signals");
+  return data.signals;
+}
+
+export async function createSignal(input: {
+  title: string;
+  instrument: string;
+  direction: "BUY" | "SELL" | "NEUTRAL";
+  entryPrice?: string;
+  stopLoss?: string;
+  takeProfit?: string;
+  timeframe?: string;
+  notes?: string;
+  publish?: boolean;
+}): Promise<SignalDto> {
+  const data = await request<{ signal: SignalDto }>("/admin/signals", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.signal;
+}
+
+export async function publishSignal(id: string): Promise<SignalDto> {
+  const data = await request<{ signal: SignalDto }>(`/admin/signals/${id}/publish`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.signal;
+}
+
+export async function fetchAdminSettlements(): Promise<SettlementDto[]> {
+  const data = await request<{ settlements: SettlementDto[] }>("/admin/settlements");
+  return data.settlements;
+}
+
+export async function recordSettlement(input: {
+  userId: string;
+  periodStart: string;
+  periodEnd: string;
+  realizedProfitCents: number;
+}): Promise<SettlementDto> {
+  const data = await request<{ settlement: SettlementDto }>("/admin/settlements", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.settlement;
+}
+
+export async function runRankEvaluation(): Promise<unknown> {
+  const data = await request<{ result: unknown }>("/admin/ranks/evaluate", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.result;
+}
+
+export async function fetchRankAwards(): Promise<RankAwardDto[]> {
+  const data = await request<{ awards: RankAwardDto[] }>("/admin/rank-awards");
+  return data.awards;
+}
+
+export async function fetchPools(): Promise<{
+  balances: Record<string, number>;
+  entries: PoolLedgerEntryDto[];
+}> {
+  return request<{ balances: Record<string, number>; entries: PoolLedgerEntryDto[] }>("/admin/pools");
+}
+
+export async function fetchAdminPayouts(): Promise<PayoutDto[]> {
+  const data = await request<{ payouts: PayoutDto[] }>("/admin/payouts");
+  return data.payouts;
+}
+
+export async function approvePayout(id: string): Promise<PayoutDto> {
+  const data = await request<{ payout: PayoutDto }>(`/admin/payouts/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.payout;
+}
+
+export async function rejectPayout(id: string): Promise<PayoutDto> {
+  const data = await request<{ payout: PayoutDto }>(`/admin/payouts/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.payout;
+}
+
+export async function payPayout(id: string): Promise<PayoutDto> {
+  const data = await request<{ payout: PayoutDto }>(`/admin/payouts/${id}/pay`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.payout;
+}
+
+export interface AdminPaymentDto {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userFullName: string;
+  purpose: PaymentPurpose;
+  amountCents: number;
+  currency: string;
+  status: PaymentStatus;
+  paymentRef: string;
+  gatewayTxid: string | null;
+  txHash: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminPaymentSummaryDto {
+  registrationCollectedCents: number;
+  registrationPaidCount: number;
+  registrationPendingCount: number;
+  depositCollectedCents: number;
+  depositPaidCount: number;
+  depositPendingCount: number;
+}
+
+export interface UnpaidMemberDto {
+  id: string;
+  email: string;
+  fullName: string;
+  createdAt: string;
+}
+
+export interface AdminPaymentsDto {
+  payments: AdminPaymentDto[];
+  summary: AdminPaymentSummaryDto;
+  unpaidMembers: UnpaidMemberDto[];
+}
+
+export async function fetchAdminPayments(): Promise<AdminPaymentsDto> {
+  return request<AdminPaymentsDto>("/admin/payments");
+}
+
+/** Settle an invoice off-rail. Idempotent — routes through the webhook path. */
+export async function confirmPayment(
+  id: string,
+  txHash?: string,
+): Promise<{ applied: boolean; purpose: string; userId: string; compensationRun: boolean }> {
+  const data = await request<{
+    result: { applied: boolean; purpose: string; userId: string; compensationRun: boolean };
+  }>(`/admin/payments/${id}/confirm`, {
+    method: "POST",
+    body: JSON.stringify(txHash ? { txHash } : {}),
+  });
+  return data.result;
+}
+
+/** Expire a stale PENDING invoice (no ledger effect). */
+export async function cancelPayment(id: string): Promise<PaymentDto> {
+  const data = await request<{ payment: PaymentDto }>(`/admin/payments/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.payment;
+}
+
+export async function fetchAuditLog(): Promise<AuditEntryDto[]> {
+  const data = await request<{ entries: AuditEntryDto[] }>("/admin/audit");
+  return data.entries;
+}

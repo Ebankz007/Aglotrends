@@ -1,0 +1,21 @@
+{
+  "name": "aglotrends-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Aglotrends platform — Copy Trading, Signal Service, Referral/Network, Trader Community. Compensation engine + API + dashboards.",
+  "packageManager": "pnpm@11.12.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "dev:api": "pnpm --filter @aglotrends/api dev",
+    "dev:web": "pnpm --filter @aglotrends/web dev",
+    "db:generate": "pnpm --filter @aglotrends/database generate",
+    "db:migrate": "pnpm --filter @aglotrends/database migrate",
+    "db:seed": "pnpm --filter @aglotrends/database seed",
+    "db:seed-users": "pnpm --filter @aglotrends/database seed-users",
+    "lint": "pnpm -r lint"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

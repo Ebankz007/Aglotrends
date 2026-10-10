@@ -1,0 +1,25 @@
+{
+  "name": "@aglotrends/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Aglotrends compensation + network engine — pure TypeScript, no framework deps. Source: Aglotrends Compensation Plan Calculation Logic (Sections 1-12).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

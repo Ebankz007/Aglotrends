@@ -1,0 +1,62 @@
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/
+
+# ---- secrets / env ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials.json
+
+# Seed logins (real dev usernames/passwords) — NEVER commit. Example is tracked.
+database/seed.accounts.json
+
+# ---- logs / runtime ----
+*.log
+logs/
+tmp/
+temp/
+*.pid
+
+# ---- Node / JS / TS ----
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+.pnpm-store/
+*.tsbuildinfo
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ---- data / models ----
+*.db
+*.sqlite
+*.sqlite3
+data/
+datasets/
+models/
+*.parquet
+*.csv
+!docs/**/*.csv
+
+# ---- archives / heavy artifacts ----
+*.zip
+!docs/archive/**

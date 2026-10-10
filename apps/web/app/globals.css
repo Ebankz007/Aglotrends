@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  /* Aglotrends brand — dark navy member-app theme with a blue accent
+     (the rebrand moved Copinex's green to blue). */
+  --color-night: #010b1a;
+  --color-night-2: #04101f;
+  --color-navy: #071c36;
+  --color-navy-2: #0a2748;
+  --color-navy-3: #10385f;
+  --color-brand: #2f7bf6;
+  --color-brand-2: #5ea0ff;
+  --color-cyan: #22d3ee;
+  --color-ink: #10243a;
+  --color-muted: #566b80;
+  --color-mist: #8aa0b5;
+  --color-soft: #eef4ff;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-night);
+  color: var(--color-soft);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Soft brand glow behind the app shell — subtle depth on the dark canvas. */
+.app-glow {
+  background:
+    radial-gradient(60rem 24rem at 50% -8rem, rgba(47, 123, 246, 0.10), transparent 70%),
+    radial-gradient(40rem 20rem at 90% 110%, rgba(34, 211, 238, 0.06), transparent 70%);
+}

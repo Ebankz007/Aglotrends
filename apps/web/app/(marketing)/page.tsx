@@ -154,8 +154,8 @@ export default function LandingPage() {
     <main className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
       {/* HERO */}
       <section className="py-14 text-center sm:py-20">
-        <span className="inline-flex items-center gap-2 rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-xs font-bold text-brand-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-cyan" />
+        <span className="inline-flex items-center gap-2 rounded-full border border-gold/25 bg-gold/5 px-3 py-1 text-xs font-bold text-gold-2 backdrop-blur-md">
+          <span className="h-1.5 w-1.5 rounded-full bg-gold" />
           Platform live · registration open
         </span>
         <h1 className="mx-auto mt-5 max-w-3xl text-4xl font-extrabold tracking-tight sm:text-6xl">
@@ -176,7 +176,7 @@ export default function LandingPage() {
           </Link>
           <Link
             href="#how-it-works"
-            className="w-full rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-center font-bold text-soft transition hover:bg-white/10 sm:w-auto"
+            className="glass-soft w-full rounded-2xl px-6 py-3 text-center font-bold text-soft transition hover:border-gold/30 hover:text-gold-2 sm:w-auto"
           >
             See how it works
           </Link>
@@ -185,10 +185,10 @@ export default function LandingPage() {
           Trading involves substantial risk. No return or income is guaranteed.
         </p>
 
-        <dl className="mt-12 grid grid-cols-2 gap-px overflow-hidden rounded-3xl border border-white/10 bg-white/5 sm:grid-cols-4">
+        <dl className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {stats.map((s) => (
-            <div key={s.label} className="bg-navy px-4 py-6">
-              <dt className="text-3xl font-extrabold tracking-tight text-soft">{s.value}</dt>
+            <div key={s.label} className="glass rounded-2xl px-4 py-6">
+              <dt className="text-gold-gradient text-3xl font-extrabold tracking-tight">{s.value}</dt>
               <dd className="mt-1 text-xs font-medium text-mist">{s.label}</dd>
             </div>
           ))}
@@ -206,13 +206,13 @@ export default function LandingPage() {
           {pillars.map(({ Icon, title, body, tag }) => (
             <div
               key={title}
-              className="group rounded-3xl border border-white/10 bg-navy p-6 transition hover:border-brand/40 hover:bg-navy-2"
+              className="glass group rounded-3xl p-6 transition hover:border-gold/30"
             >
               <div className="flex items-start justify-between gap-4">
-                <span className="grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-night-2 text-brand-2">
+                <span className="grid h-12 w-12 place-items-center rounded-2xl border border-gold/20 bg-gold/5 text-gold-2 backdrop-blur-md">
                   <Icon className="h-6 w-6" />
                 </span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-mist">
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-mist backdrop-blur-md">
                   {tag}
                 </span>
               </div>
@@ -232,8 +232,8 @@ export default function LandingPage() {
         />
         <ol className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {steps.map((step, i) => (
-            <li key={step.title} className="rounded-3xl border border-white/10 bg-navy-2 p-6">
-              <span className="grid h-9 w-9 place-items-center rounded-full bg-brand font-bold text-night">
+            <li key={step.title} className="glass rounded-3xl p-6">
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-gold-2 to-gold-deep font-bold text-night">
                 {i + 1}
               </span>
               <h3 className="mt-4 font-bold">{step.title}</h3>
@@ -252,8 +252,8 @@ export default function LandingPage() {
         />
         <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
           {paths.map((p) => (
-            <div key={p.tag} className="flex flex-col rounded-3xl border border-white/10 bg-navy p-6 sm:p-8">
-              <span className="w-fit rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-brand-2">
+            <div key={p.tag} className="glass flex flex-col rounded-3xl p-6 sm:p-8">
+              <span className="w-fit rounded-full border border-gold/25 bg-gold/5 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-gold-2 backdrop-blur-md">
                 {p.tag}
               </span>
               <h3 className="mt-4 text-xl font-bold">{p.title}</h3>
@@ -261,7 +261,7 @@ export default function LandingPage() {
               <ul className="mt-5 space-y-2.5">
                 {p.points.map((pt) => (
                   <li key={pt} className="flex items-start gap-2.5 text-sm text-soft">
-                    <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-brand-2" />
+                    <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
                     <span>{pt}</span>
                   </li>
                 ))}
@@ -275,7 +275,7 @@ export default function LandingPage() {
       {/* CUSTODY / WHAT WE ARE NOT */}
       <section id="custody" className="pt-16 sm:pt-24">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="rounded-3xl border border-white/10 bg-navy p-6 sm:p-8">
+          <div className="glass rounded-3xl p-6 sm:p-8">
             <h2 className="text-2xl font-bold">Your capital stays separate.</h2>
             <p className="mt-3 text-sm text-mist">
               Aglotrends supplies the strategy, software, and community layer. Your personal broker
@@ -288,7 +288,7 @@ export default function LandingPage() {
                 ["You control the connection", "Follow, pause, or disconnect on your own terms, at any time."],
               ].map(([t, b]) => (
                 <li key={t} className="flex gap-3">
-                  <ShieldIcon className="mt-0.5 h-5 w-5 shrink-0 text-brand-2" />
+                  <ShieldIcon className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
                   <div>
                     <p className="text-sm font-bold">{t}</p>
                     <p className="mt-0.5 text-sm text-mist">{b}</p>
@@ -297,7 +297,7 @@ export default function LandingPage() {
               ))}
             </ul>
           </div>
-          <div className="rounded-3xl border border-white/10 bg-night-2 p-6 sm:p-8">
+          <div className="glass-soft rounded-3xl p-6 sm:p-8">
             <span className="text-[11px] font-bold uppercase tracking-wide text-muted">
               What Aglotrends is not
             </span>
@@ -309,7 +309,7 @@ export default function LandingPage() {
                 </li>
               ))}
             </ul>
-            <div className="mt-6 rounded-2xl border border-brand/20 bg-brand/5 p-4">
+            <div className="mt-6 rounded-2xl border border-gold/20 bg-gold/5 p-4 backdrop-blur-md">
               <p className="text-xs text-mist">
                 <span className="font-bold text-soft">Protect your access details.</span> Aglotrends
                 will never ask for your email password, bank or card PIN, one-time password, crypto
@@ -330,8 +330,10 @@ export default function LandingPage() {
         />
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           {pipeline.map((step) => (
-            <div key={step.n} className="rounded-3xl border border-white/10 bg-navy p-6">
-              <span className="text-3xl font-extrabold tracking-tight text-brand/40">{step.n}</span>
+            <div key={step.n} className="glass rounded-3xl p-6">
+              <span className="text-gold-gradient text-3xl font-extrabold tracking-tight">
+                {step.n}
+              </span>
               <h3 className="mt-3 font-bold">{step.title}</h3>
               <p className="mt-1.5 text-sm text-mist">{step.body}</p>
             </div>
@@ -341,10 +343,10 @@ export default function LandingPage() {
 
       {/* TRUST STRIP */}
       <section className="pt-16 sm:pt-24">
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-3xl border border-white/10 bg-white/5 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {trust.map(({ Icon, label }) => (
-            <div key={label} className="flex items-center gap-3 bg-navy px-5 py-6">
-              <Icon className="h-5 w-5 shrink-0 text-brand-2" />
+            <div key={label} className="glass flex items-center gap-3 rounded-2xl px-5 py-6">
+              <Icon className="h-5 w-5 shrink-0 text-gold" />
               <span className="text-sm font-semibold text-soft">{label}</span>
             </div>
           ))}
@@ -362,11 +364,11 @@ export default function LandingPage() {
           {faqs.map(({ q, a }) => (
             <details
               key={q}
-              className="group rounded-2xl border border-white/10 bg-navy px-5 py-4 open:border-brand/40 open:bg-navy-2"
+              className="glass group rounded-2xl px-5 py-4 open:border-gold/30"
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-bold text-soft [&::-webkit-details-marker]:hidden">
                 {q}
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-white/15 text-mist transition group-open:rotate-45">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-white/15 text-gold-2 transition group-open:rotate-45">
                   <PlusGlyph />
                 </span>
               </summary>
@@ -378,7 +380,7 @@ export default function LandingPage() {
 
       {/* FINAL CTA */}
       <section className="pt-16 sm:pt-24">
-        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-navy-2 p-8 text-center sm:p-14">
+        <div className="glass relative overflow-hidden rounded-3xl p-8 text-center sm:p-14">
           <div className="app-glow pointer-events-none absolute inset-0" aria-hidden="true" />
           <div className="relative">
             <h2 className="mx-auto max-w-2xl text-2xl font-extrabold tracking-tight sm:text-4xl">
@@ -398,7 +400,7 @@ export default function LandingPage() {
               </Link>
               <Link
                 href="/login"
-                className="w-full rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-center font-bold text-soft transition hover:bg-white/10 sm:w-auto"
+                className="glass-soft w-full rounded-2xl px-6 py-3 text-center font-bold text-soft transition hover:border-gold/30 hover:text-gold-2 sm:w-auto"
               >
                 Sign in
               </Link>
@@ -424,7 +426,7 @@ function SectionHeading({
 }) {
   return (
     <div className="max-w-2xl">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-brand-2">{eyebrow}</span>
+      <span className="text-[11px] font-bold uppercase tracking-wide text-gold-2">{eyebrow}</span>
       <h2 className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">{title}</h2>
       <p className="mt-3 text-sm text-mist sm:text-base">{sub}</p>
     </div>

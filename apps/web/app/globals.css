@@ -2,7 +2,7 @@
 
 @theme {
   /* Aglotrends brand — dark navy member-app theme with a blue accent
-     (the rebrand moved Copinex's green to blue). */
+     (the rebrand moved Copinex's green to blue), plus a gold accent. */
   --color-night: #010b1a;
   --color-night-2: #04101f;
   --color-navy: #071c36;
@@ -11,6 +11,9 @@
   --color-brand: #2f7bf6;
   --color-brand-2: #5ea0ff;
   --color-cyan: #22d3ee;
+  --color-gold: #e8b84b;
+  --color-gold-2: #f7d98a;
+  --color-gold-deep: #b8862b;
   --color-ink: #10243a;
   --color-muted: #566b80;
   --color-mist: #8aa0b5;
@@ -30,9 +33,54 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Soft brand glow behind the app shell — subtle depth on the dark canvas. */
-.app-glow {
-  background:
-    radial-gradient(60rem 24rem at 50% -8rem, rgba(47, 123, 246, 0.10), transparent 70%),
-    radial-gradient(40rem 20rem at 90% 110%, rgba(34, 211, 238, 0.06), transparent 70%);
+@layer components {
+  /* Soft brand glow behind the app shell — blue top, gold bottom-right. */
+  .app-glow {
+    background:
+      radial-gradient(60rem 24rem at 50% -8rem, rgba(47, 123, 246, 0.14), transparent 70%),
+      radial-gradient(42rem 22rem at 88% 108%, rgba(232, 184, 75, 0.12), transparent 70%),
+      radial-gradient(40rem 20rem at 6% 112%, rgba(34, 211, 238, 0.05), transparent 70%);
+  }
+
+  /* Glassmorphic panel — frosted layer over the candlestick backdrop. */
+  .glass {
+    background: linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.10),
+      rgba(255, 255, 255, 0.035) 46%,
+      rgba(255, 255, 255, 0.02)
+    );
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.10),
+      0 24px 60px -30px rgba(0, 0, 0, 0.85);
+  }
+
+  .glass-soft {
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  }
+
+  /* Gold sheen for accent text (numbers, eyebrows). */
+  .text-gold-gradient {
+    background: linear-gradient(120deg, #f7d98a, #e8b84b 55%, #b8862b);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Thin gold hairline divider. */
+  .gold-rule {
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(232, 184, 75, 0.5),
+      transparent
+    );
+  }
 }

@@ -1,5 +1,16 @@
 import type { NextConfig } from "next";
 
+// Next.js dev mode compiles the client with webpack's `eval`-based devtool
+// (the HMR/runtime chunks call `eval` hundreds of times). A CSP without
+// 'unsafe-eval' silently blocks all of it: the page still server-renders, but
+// hydration dies, so client components — like the login form — never wire up
+// their handlers. Production builds don't use eval, so the exemption is
+// development-only and the deployed policy stays strict.
+const isDev = process.env.NODE_ENV !== "production";
+const scriptSrc = isDev
+  ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+  : "script-src 'self' 'unsafe-inline'";
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   async rewrites() {
@@ -32,7 +43,7 @@ const nextConfig: NextConfig = {
             // JavaScript worth exfiltrating at all.
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",
+              scriptSrc,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data:",
               "font-src 'self'",

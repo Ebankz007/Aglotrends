@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { config } from '../config.js';
 import { db, schema } from '../db.js';
+import { decryptSecret, encryptSecret, encryptionAvailable, isEncrypted } from '../lib/crypto.js';
 
 /**
  * Runtime settings, stored in `app_config` (key → jsonb). This is the layer
@@ -73,8 +74,11 @@ export async function resolveGatewaySettings(): Promise<GatewaySettings> {
   return {
     ...merged,
     apiUrl: (merged.apiUrl || config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
-    token: merged.token || config.PAY2CRYPTO_TOKEN || '',
-    webhookSecret: merged.webhookSecret || config.PAY2CRYPTO_WEBHOOK_SECRET || '',
+    // Stored values are encrypted at rest; environment values are plaintext.
+    token: merged.token ? decryptSecret(merged.token) : config.PAY2CRYPTO_TOKEN || '',
+    webhookSecret: merged.webhookSecret
+      ? decryptSecret(merged.webhookSecret)
+      : config.PAY2CRYPTO_WEBHOOK_SECRET || '',
   };
 }
 
@@ -96,6 +100,8 @@ export interface GatewaySettingsView {
   tokenSource: 'database' | 'environment' | 'unset';
   webhookSecretSource: 'database' | 'environment' | 'unset';
   mockActive: boolean;
+  /** False when no SECRET_ENCRYPTION_KEY is configured — secrets are plaintext. */
+  secretsEncrypted: boolean;
 }
 
 function sourceOf(stored: string | undefined, env: string): 'database' | 'environment' | 'unset' {
@@ -105,19 +111,29 @@ function sourceOf(stored: string | undefined, env: string): 'database' | 'enviro
 
 export async function gatewaySettingsView(): Promise<GatewaySettingsView> {
   const stored = (await getSetting<Partial<GatewaySettings>>(GATEWAY_KEY)) ?? {};
-  const resolved = await resolveGatewaySettings();
+  const merged = { ...GATEWAY_DEFAULTS, ...stored };
+  // Deliberately does NOT decrypt. The view only needs to know *whether* a
+  // secret is set, so a rotated or missing key cannot break the one console an
+  // operator needs in order to fix it.
+  const effective: GatewaySettings = {
+    ...merged,
+    apiUrl: (merged.apiUrl || config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
+    token: merged.token || config.PAY2CRYPTO_TOKEN || '',
+    webhookSecret: merged.webhookSecret || config.PAY2CRYPTO_WEBHOOK_SECRET || '',
+  };
   return {
-    provider: resolved.provider,
-    apiUrl: resolved.apiUrl,
-    walletAddress: resolved.walletAddress,
-    network: resolved.network,
-    asset: resolved.asset,
-    forceMock: resolved.forceMock,
-    hasToken: resolved.token.length > 0,
-    hasWebhookSecret: resolved.webhookSecret.length > 0,
+    provider: effective.provider,
+    apiUrl: effective.apiUrl,
+    walletAddress: effective.walletAddress,
+    network: effective.network,
+    asset: effective.asset,
+    forceMock: effective.forceMock,
+    hasToken: effective.token.length > 0,
+    hasWebhookSecret: effective.webhookSecret.length > 0,
     tokenSource: sourceOf(stored.token, config.PAY2CRYPTO_TOKEN),
     webhookSecretSource: sourceOf(stored.webhookSecret, config.PAY2CRYPTO_WEBHOOK_SECRET),
-    mockActive: isGatewayMock(resolved),
+    mockActive: isGatewayMock(effective),
+    secretsEncrypted: encryptionAvailable(),
   };
 }
 
@@ -145,11 +161,30 @@ export async function saveGatewaySettings(input: GatewaySettingsInput): Promise<
   if (input.forceMock !== undefined) next.forceMock = input.forceMock;
   // A blank string means "clear the override" — the env value (if any) takes
   // over again. `undefined` means "leave whatever is stored alone".
-  if (input.token !== undefined) next.token = (input.token ?? '').trim();
-  if (input.webhookSecret !== undefined) next.webhookSecret = (input.webhookSecret ?? '').trim();
+  if (input.token !== undefined) next.token = seal(input.token);
+  if (input.webhookSecret !== undefined) next.webhookSecret = seal(input.webhookSecret);
+
+  // Opportunistically upgrade anything written before encryption existed, so
+  // legacy plaintext heals on the next save instead of lingering forever.
+  if (encryptionAvailable()) {
+    if (next.token && !isEncrypted(next.token)) next.token = encryptSecret(next.token);
+    if (next.webhookSecret && !isEncrypted(next.webhookSecret)) {
+      next.webhookSecret = encryptSecret(next.webhookSecret);
+    }
+  }
 
   await setSetting(GATEWAY_KEY, next);
   return gatewaySettingsView();
+}
+
+/**
+ * Normalises a secret write: blank clears the override, otherwise the value is
+ * encrypted. An empty string must NOT be encrypted — that would store a
+ * non-empty envelope for "no secret" and make `hasToken` lie.
+ */
+function seal(value: string | null): string {
+  const trimmed = (value ?? '').trim();
+  return trimmed ? encryptSecret(trimmed) : '';
 }
 
 /* -------------------------------------------------------------- site content */

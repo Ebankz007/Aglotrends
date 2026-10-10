@@ -13,6 +13,25 @@ const schema = z.object({
   JWT_SECRET: z.string().min(8).default('dev-only-secret-change-me'),
   SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24),
 
+  // Encrypts gateway secrets (merchant token, webhook secret) at rest in
+  // `app_config`. Accepts hex (64 chars) or base64, decoding to exactly 32 bytes.
+  // Blank = secrets stored in plaintext, which is dev-only: production refuses
+  // to boot without this. Generate one with: openssl rand -base64 32
+  SECRET_ENCRYPTION_KEY: z
+    .string()
+    .default('')
+    .refine(
+      (v) => {
+        if (v === '') return true;
+        const buf = /^[0-9a-fA-F]{64}$/.test(v) ? Buffer.from(v, 'hex') : Buffer.from(v, 'base64');
+        return buf.length === 32;
+      },
+      {
+        message:
+          'SECRET_ENCRYPTION_KEY must decode to 32 bytes — generate with: openssl rand -base64 32',
+      },
+    ),
+
   // Outbound email. Blank = dev transport (message logged, nothing sent).
   // The scheme is validated here so a bare hostname fails at boot with a clear
   // message instead of silently failing deep inside nodemailer at send time.
@@ -81,6 +100,13 @@ if (config.NODE_ENV === 'production') {
     // eslint-disable-next-line no-console
     console.error(
       'Refusing to boot in production without SMTP_URL. Format: smtps://user:password@host:465 (password percent-encoded).',
+    );
+    process.exit(1);
+  }
+  if (!config.SECRET_ENCRYPTION_KEY) {
+    // eslint-disable-next-line no-console
+    console.error(
+      'Refusing to boot in production without SECRET_ENCRYPTION_KEY — gateway secrets would be stored in plaintext. Generate one with: openssl rand -base64 32',
     );
     process.exit(1);
   }

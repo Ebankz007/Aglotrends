@@ -177,6 +177,15 @@ export function SettingsTab() {
           Where the rail settles and which merchant credentials it uses. Values saved here override
           the server environment; clearing a secret falls back to <code>.env</code>.
         </p>
+        {!gateway.secretsEncrypted && (
+          <div className="mb-4">
+            <Note tone="warn">
+              Secrets are stored <strong>unencrypted</strong>. Set{" "}
+              <code>SECRET_ENCRYPTION_KEY</code> on the API to encrypt them at rest — generate one
+              with <code>openssl rand -base64 32</code>.
+            </Note>
+          </div>
+        )}
         <form onSubmit={submitGateway} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
             label="Provider"

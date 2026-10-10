@@ -69,13 +69,14 @@ export function Note({
   tone = "info",
   children,
 }: {
-  tone?: "info" | "error" | "ok";
+  tone?: "info" | "error" | "ok" | "warn";
   children: React.ReactNode;
 }) {
   const tones = {
     info: "border-white/10 bg-white/5 text-mist",
     error: "border-red-400/30 bg-red-400/10 text-soft",
     ok: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
+    warn: "border-amber-400/30 bg-amber-400/10 text-amber-200",
   } as const;
   return <p className={`rounded-2xl border px-4 py-3 text-sm ${tones[tone]}`}>{children}</p>;
 }

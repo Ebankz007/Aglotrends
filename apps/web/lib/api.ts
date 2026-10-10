@@ -760,6 +760,8 @@ export interface GatewaySettingsDto {
   tokenSource: "database" | "environment" | "unset";
   webhookSecretSource: "database" | "environment" | "unset";
   mockActive: boolean;
+  /** False when the API has no SECRET_ENCRYPTION_KEY — secrets are plaintext. */
+  secretsEncrypted: boolean;
 }
 
 export interface PlatformSettingsDto {

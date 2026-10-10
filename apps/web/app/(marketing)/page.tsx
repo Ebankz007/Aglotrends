@@ -1,70 +1,42 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import {
   ArrowUpRightIcon,
-  BellIcon,
   BrokerIcon,
   CheckIcon,
   CommunityIcon,
   NetworkIcon,
   ShieldIcon,
   SignalIcon,
-  WalletIcon,
   XIcon,
 } from "@/components/icons";
+import { DEFAULT_SITE_CONTENT, mergeSiteContent, type SiteContent } from "@/lib/site-content";
 
-const stats = [
-  { value: "4", label: "Integrated pillars" },
-  { value: "3", label: "Signal channels" },
-  { value: "24/5", label: "Market coverage" },
-  { value: "$0", label: "Client capital held by us" },
-];
+// Marketing copy is console-editable, so revalidate rather than freeze at build.
+export const revalidate = 60;
 
-const pillars = [
-  {
-    Icon: BrokerIcon,
-    title: "Copy Trading",
-    body: "Follow proven traders from your own partner-broker account. Orders are placed on your broker — Aglotrends never holds your capital.",
-    tag: "You keep control",
-  },
-  {
-    Icon: SignalIcon,
-    title: "Signal Service",
-    body: "Professional trade ideas land on your dashboard the moment they are published — and reach you by email, WhatsApp, or Telegram.",
-    tag: "3 delivery channels",
-  },
-  {
-    Icon: NetworkIcon,
-    title: "Referral Network",
-    body: "A transparent, auditable compensation engine — direct referrals, generation bonuses, a forced 3×3 matrix, and rank pools. Every payout is logged.",
-    tag: "Auditable by design",
-  },
-  {
-    Icon: CommunityIcon,
-    title: "Trader Community",
-    body: "Discover strategies and the traders behind them. Learn the craft alongside a network that grows as you do.",
-    tag: "Learn the craft",
-  },
-];
+/**
+ * Load the operator's content overrides. Any failure — API down, bad JSON,
+ * slow response — degrades to the built-in defaults rather than breaking the
+ * public landing page. This is the one page that must never 500.
+ */
+async function loadSiteContent(): Promise<SiteContent> {
+  try {
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+    const res = await fetch(`${base}/api/content`, { next: { revalidate: 60 } });
+    if (!res.ok) return DEFAULT_SITE_CONTENT;
+    const data = (await res.json()) as { content?: unknown };
+    return mergeSiteContent(data.content);
+  } catch {
+    return DEFAULT_SITE_CONTENT;
+  }
+}
 
-const steps = [
-  {
-    title: "Create your account",
-    body: "Register through the official Aglotrends domain, complete onboarding, and activate your membership.",
-  },
-  {
-    title: "Connect your broker",
-    body: "Open an account directly with an approved partner broker and record the link here. Your funds stay with the broker.",
-  },
-  {
-    title: "Follow traders & signals",
-    body: "Mirror partner traders on your own broker account and receive signals across your dashboard and messaging channels.",
-  },
-  {
-    title: "Grow your network",
-    body: "Invite and support members under the published program. Track every referral and reward inside your member portal.",
-  },
-];
+/** Pillar icons are positional — the copy is editable, the iconography is not. */
+const PILLAR_ICONS = [BrokerIcon, SignalIcon, NetworkIcon, CommunityIcon];
 
+/* Compliance-locked sections. These are NOT editable from the console: risk
+ * and custody disclosures must not be removable by a marketing edit. */
 const paths = [
   {
     tag: "Path A",
@@ -97,6 +69,12 @@ const notList = [
   "Not a promise of rank, reward, or income.",
 ];
 
+const custody = [
+  ["Funds stay with your broker", "You fund and withdraw through your own approved broker account, not through Aglotrends."],
+  ["Activity stays visible", "Monitor followed trades through your broker's platform or MetaTrader 5."],
+  ["You control the connection", "Follow, pause, or disconnect on your own terms, at any time."],
+];
+
 const pipeline = [
   {
     n: "01",
@@ -116,77 +94,51 @@ const pipeline = [
 ];
 
 const trust = [
-  { Icon: ShieldIcon, label: "Encrypted sessions" },
-  { Icon: WalletIcon, label: "Capital stays with your broker" },
-  { Icon: BrokerIcon, label: "Approved partner brokers" },
-  { Icon: BellIcon, label: "Support & alerts" },
+  { Icon: ShieldIcon, label: "Auditable ledger" },
+  { Icon: BrokerIcon, label: "Partner-broker custody" },
+  { Icon: NetworkIcon, label: "Transparent network" },
+  { Icon: SignalIcon, label: "Multi-channel delivery" },
 ];
 
-const faqs = [
-  {
-    q: "Does Aglotrends hold my trading funds?",
-    a: "No. Trading capital stays in your own account with an approved partner broker. Aglotrends provides the software, signals, and community layer — not custody of your funds.",
-  },
-  {
-    q: "Is any trading return guaranteed?",
-    a: "No. Trading losses are possible. Risk controls can help manage exposure, but they cannot guarantee a return or remove the risk of loss.",
-  },
-  {
-    q: "How are signals delivered?",
-    a: "Signals are published to your member dashboard and can also be delivered by email, WhatsApp, or Telegram the moment they go live.",
-  },
-  {
-    q: "Is the membership fee trading capital?",
-    a: "No. The membership fee is a separate activation transaction. It is not a trading deposit and is never placed into markets on your behalf.",
-  },
-  {
-    q: "How does the referral program work?",
-    a: "It is a qualification-based community program with published terms, eligibility rules, and reward examples inside your member portal. Rewards are not investment returns and are never guaranteed.",
-  },
-  {
-    q: "Can I pause or stop following a trader?",
-    a: "Yes. Following is under your control — you choose what to follow and can stop at any time. Open positions remain subject to your broker's terms.",
-  },
-];
+export default async function LandingPage() {
+  const content = await loadSiteContent();
 
-export default function LandingPage() {
   return (
-    <main className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
+    <main className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
       {/* HERO */}
-      <section className="py-14 text-center sm:py-20">
-        <span className="inline-flex items-center gap-2 rounded-full border border-gold/25 bg-gold/5 px-3 py-1 text-xs font-bold text-gold-2 backdrop-blur-md">
+      <section className="pt-12 sm:pt-20">
+        <span className="inline-flex items-center gap-2 rounded-full border border-gold/25 bg-gold/5 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-gold-2 backdrop-blur-md">
           <span className="h-1.5 w-1.5 rounded-full bg-gold" />
-          Platform live · registration open
+          {content.hero.badge}
         </span>
-        <h1 className="mx-auto mt-5 max-w-3xl text-4xl font-extrabold tracking-tight sm:text-6xl">
-          Trade with structure.
-          <br className="hidden sm:block" /> Grow with a network.
+        <h1 className="mt-5 max-w-3xl text-4xl font-extrabold leading-[1.05] tracking-tight text-soft sm:text-6xl">
+          {content.hero.title.split("\n").map((line, i) => (
+            <Fragment key={i}>
+              {i > 0 && <br className="hidden sm:block" />}
+              {line}
+            </Fragment>
+          ))}
         </h1>
-        <p className="mx-auto mt-5 max-w-2xl text-base text-mist sm:text-lg">
-          Aglotrends connects your own broker account to professional traders, delivers signals the
-          moment they go live, and runs a referral network on a compensation engine you can actually
-          audit.
-        </p>
-        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <p className="mt-5 max-w-2xl text-base text-mist sm:text-lg">{content.hero.subtitle}</p>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
           <Link
             href="/register"
-            className="w-full rounded-2xl bg-brand px-6 py-3 text-center font-bold text-night transition hover:brightness-110 sm:w-auto"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand px-6 py-3 font-bold text-night transition hover:brightness-110"
           >
             Create your account
+            <ArrowUpRightIcon className="h-4 w-4" />
           </Link>
           <Link
             href="#how-it-works"
-            className="glass-soft w-full rounded-2xl px-6 py-3 text-center font-bold text-soft transition hover:border-gold/30 hover:text-gold-2 sm:w-auto"
+            className="glass-soft inline-flex items-center justify-center rounded-2xl px-6 py-3 font-bold text-soft transition hover:border-gold/30 hover:text-gold-2"
           >
             See how it works
           </Link>
         </div>
-        <p className="mx-auto mt-4 max-w-xl text-xs text-muted">
-          Trading involves substantial risk. No return or income is guaranteed.
-        </p>
+        <p className="mt-4 max-w-xl text-xs text-muted">{content.hero.riskNote}</p>
 
         <dl className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {stats.map((s) => (
+          {content.stats.map((s) => (
             <div key={s.label} className="glass rounded-2xl px-4 py-6">
               <dt className="text-gold-gradient text-3xl font-extrabold tracking-tight">{s.value}</dt>
               <dd className="mt-1 text-xs font-medium text-mist">{s.label}</dd>
@@ -196,30 +148,30 @@ export default function LandingPage() {
       </section>
 
       {/* PILLARS */}
-      <section id="pillars" className="pt-6">
+      <section id="pillars" className="pt-16 sm:pt-24">
         <SectionHeading
           eyebrow="One platform"
           title="Four tools that used to live in four places."
           sub="Copy trading, a signal service, a referral network, and a trader community — wired to the same account, the same wallet, and the same ledger."
         />
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {pillars.map(({ Icon, title, body, tag }) => (
-            <div
-              key={title}
-              className="glass group rounded-3xl p-6 transition hover:border-gold/30"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <span className="grid h-12 w-12 place-items-center rounded-2xl border border-gold/20 bg-gold/5 text-gold-2 backdrop-blur-md">
-                  <Icon className="h-6 w-6" />
-                </span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-mist backdrop-blur-md">
-                  {tag}
-                </span>
+          {content.pillars.map((p, i) => {
+            const Icon = PILLAR_ICONS[i] ?? ShieldIcon;
+            return (
+              <div key={p.title} className="glass group rounded-3xl p-6 transition hover:border-gold/30">
+                <div className="flex items-start justify-between gap-4">
+                  <span className="grid h-12 w-12 place-items-center rounded-2xl border border-gold/20 bg-gold/5 text-gold-2 backdrop-blur-md">
+                    <Icon className="h-6 w-6" />
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-mist backdrop-blur-md">
+                    {p.tag}
+                  </span>
+                </div>
+                <h3 className="mt-4 text-lg font-bold">{p.title}</h3>
+                <p className="mt-2 text-sm text-mist">{p.body}</p>
               </div>
-              <h3 className="mt-4 text-lg font-bold">{title}</h3>
-              <p className="mt-2 text-sm text-mist">{body}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
@@ -231,7 +183,7 @@ export default function LandingPage() {
           sub="Four steps. Each one you complete on your own terms, with your capital held by your broker — not by us."
         />
         <ol className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {steps.map((step, i) => (
+          {content.steps.map((step, i) => (
             <li key={step.title} className="glass rounded-3xl p-6">
               <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-gold-2 to-gold-deep font-bold text-night">
                 {i + 1}
@@ -282,11 +234,7 @@ export default function LandingPage() {
               holds your trading account and your funds.
             </p>
             <ul className="mt-6 space-y-4">
-              {[
-                ["Funds stay with your broker", "You fund and withdraw through your own approved broker account, not through Aglotrends."],
-                ["Activity stays visible", "Monitor followed trades through your broker's platform or MetaTrader 5."],
-                ["You control the connection", "Follow, pause, or disconnect on your own terms, at any time."],
-              ].map(([t, b]) => (
+              {custody.map(([t, b]) => (
                 <li key={t} className="flex gap-3">
                   <ShieldIcon className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
                   <div>
@@ -331,10 +279,8 @@ export default function LandingPage() {
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           {pipeline.map((step) => (
             <div key={step.n} className="glass rounded-3xl p-6">
-              <span className="text-gold-gradient text-3xl font-extrabold tracking-tight">
-                {step.n}
-              </span>
-              <h3 className="mt-3 font-bold">{step.title}</h3>
+              <span className="text-gold-gradient text-3xl font-extrabold tracking-tight">{step.n}</span>
+              <h3 className="mt-4 font-bold">{step.title}</h3>
               <p className="mt-1.5 text-sm text-mist">{step.body}</p>
             </div>
           ))}
@@ -345,7 +291,7 @@ export default function LandingPage() {
       <section className="pt-16 sm:pt-24">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {trust.map(({ Icon, label }) => (
-            <div key={label} className="glass flex items-center gap-3 rounded-2xl px-5 py-6">
+            <div key={label} className="glass flex items-center gap-3 rounded-2xl px-4 py-5">
               <Icon className="h-5 w-5 shrink-0 text-gold" />
               <span className="text-sm font-semibold text-soft">{label}</span>
             </div>
@@ -361,11 +307,8 @@ export default function LandingPage() {
           sub="The essentials about custody, risk, signals, and eligibility."
         />
         <div className="mt-8 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {faqs.map(({ q, a }) => (
-            <details
-              key={q}
-              className="glass group rounded-2xl px-5 py-4 open:border-gold/30"
-            >
+          {content.faqs.map(({ q, a }) => (
+            <details key={q} className="glass group rounded-2xl px-5 py-4 open:border-gold/30">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-bold text-soft [&::-webkit-details-marker]:hidden">
                 {q}
                 <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-white/15 text-gold-2 transition group-open:rotate-45">
@@ -384,11 +327,10 @@ export default function LandingPage() {
           <div className="app-glow pointer-events-none absolute inset-0" aria-hidden="true" />
           <div className="relative">
             <h2 className="mx-auto max-w-2xl text-2xl font-extrabold tracking-tight sm:text-4xl">
-              Take the next informed step.
+              {content.finalCta.title}
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-sm text-mist sm:text-base">
-              Review how Aglotrends works, understand the risks, and complete each onboarding step at
-              your own pace.
+              {content.finalCta.body}
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
@@ -405,9 +347,7 @@ export default function LandingPage() {
                 Sign in
               </Link>
             </div>
-            <p className="mx-auto mt-5 max-w-xl text-xs text-muted">
-              Only commit funds you can afford to place at risk.
-            </p>
+            <p className="mx-auto mt-5 max-w-xl text-xs text-muted">{content.finalCta.note}</p>
           </div>
         </div>
       </section>

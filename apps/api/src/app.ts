@@ -13,6 +13,7 @@ import { signalsRouter } from './routes/signals.js';
 import { brokersRouter } from './routes/brokers.js';
 import { adminRouter } from './routes/admin.js';
 import { paymentsRouter } from './routes/payments.js';
+import { contentRouter } from './routes/content.js';
 import { webhooksRouter } from './routes/webhooks.js';
 
 export function createApp(): express.Express {
@@ -34,6 +35,7 @@ export function createApp(): express.Express {
   app.use('/api/signals', signalsRouter);
   app.use('/api/brokers', brokersRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/content', contentRouter);
   app.use('/api/payments', paymentsRouter);
   app.use('/api/webhooks', webhooksRouter);
 

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db, schema } from '../db.js';
 import { logger } from '../logger.js';
 import { emailConfigured, sendEmail } from './email.js';
@@ -100,4 +100,76 @@ export async function dispatchSignalNotifications(signal: Signal): Promise<void>
       }
     }
   }
+}
+
+/* -------------------------------------------------------------- broadcasts */
+
+export const BROADCAST_AUDIENCES = ['ALL', 'ACTIVE', 'INACTIVE', 'STAFF'] as const;
+export type BroadcastAudience = (typeof BROADCAST_AUDIENCES)[number];
+
+export interface BroadcastInput {
+  title: string;
+  body: string;
+  link?: string | null;
+  audience: BroadcastAudience;
+  /** Also email each recipient (no-op when SMTP is unconfigured). */
+  sendEmail?: boolean;
+}
+
+export interface BroadcastResult {
+  recipients: number;
+  emailsSent: number;
+}
+
+function audienceFilter(audience: BroadcastAudience) {
+  switch (audience) {
+    case 'ACTIVE':
+      return eq(schema.users.status, 'ACTIVE');
+    case 'INACTIVE':
+      return eq(schema.users.isActiveMember, false);
+    case 'STAFF':
+      return inArray(schema.users.role, ['ADMIN', 'SUPERADMIN']);
+    case 'ALL':
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Post an operator announcement to a slice of the user base. In-app rows are
+ * written for every recipient; email is attempted only when asked for and
+ * configured, and one failed address never aborts the run.
+ *
+ * Unlike a signal fan-out there is no per-delivery ledger here — a broadcast
+ * has no signal id to hang deliveries on — so the audit log is the record.
+ */
+export async function dispatchBroadcast(input: BroadcastInput): Promise<BroadcastResult> {
+  const members = await db
+    .select({ id: schema.users.id, email: schema.users.email })
+    .from(schema.users)
+    .where(audienceFilter(input.audience));
+
+  for (const m of members) {
+    await db.insert(schema.notifications).values({
+      userId: m.id,
+      type: 'BROADCAST',
+      title: input.title,
+      body: input.body,
+      link: input.link ?? null,
+    });
+  }
+
+  let emailsSent = 0;
+  if (input.sendEmail && emailConfigured()) {
+    for (const m of members) {
+      try {
+        await sendEmail(m.email, input.title, input.body);
+        emailsSent += 1;
+      } catch (err) {
+        logger.warn({ err, userId: m.id }, 'broadcast email failed');
+      }
+    }
+  }
+
+  return { recipients: members.length, emailsSent };
 }

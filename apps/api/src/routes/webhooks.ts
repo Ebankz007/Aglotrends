@@ -1,9 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
-import { config } from '../config.js';
 import { asyncHandler } from '../lib/async.js';
 import { ApiError } from '../lib/errors.js';
 import { handlePaymentWebhook } from '../services/payment-service.js';
+import { resolveGatewaySettings } from '../services/settings.js';
 
 export const webhooksRouter = Router();
 
@@ -30,10 +30,13 @@ webhooksRouter.post(
     const querySecret = typeof req.query.secret === 'string' ? req.query.secret : undefined;
     const provided = headerSecret ?? querySecret;
 
-    if (!config.PAY2CRYPTO_WEBHOOK_SECRET || !provided) {
+    // The secret resolves from the console-managed setting over the env var.
+    const { webhookSecret } = await resolveGatewaySettings();
+
+    if (!webhookSecret || !provided) {
       throw ApiError.unauthorized('Webhook secret not configured', 'UNAUTHORIZED');
     }
-    if (!secretsMatch(provided, config.PAY2CRYPTO_WEBHOOK_SECRET)) {
+    if (!secretsMatch(provided, webhookSecret)) {
       throw ApiError.unauthorized('Invalid webhook secret', 'UNAUTHORIZED');
     }
 

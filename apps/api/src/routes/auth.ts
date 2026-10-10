@@ -12,6 +12,7 @@ import {
   signToken,
   verifyPassword,
 } from '../lib/auth.js';
+import { getPlatformSettings } from '../services/settings.js';
 
 export const authRouter = Router();
 
@@ -43,6 +44,13 @@ const registerSchema = z.object({
 authRouter.post(
   '/register',
   asyncHandler(async (req, res) => {
+    // Console-controlled kill switch. Checked before anything is written so a
+    // closed registration never leaves a half-created account behind.
+    const { registrationOpen } = await getPlatformSettings();
+    if (!registrationOpen) {
+      throw ApiError.forbidden('Registration is currently closed', 'REGISTRATION_CLOSED');
+    }
+
     const body = registerSchema.parse(req.body);
     const email = body.email.toLowerCase();
 

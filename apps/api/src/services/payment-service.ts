@@ -1,11 +1,12 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { REGISTRATION_FEE_CENTS } from '@aglotrends/engine';
-import { config, isPaymentMockMode } from '../config.js';
+import { config } from '../config.js';
 import { db, schema } from '../db.js';
 import { ApiError } from '../lib/errors.js';
 import { logger } from '../logger.js';
 import { processRegistration } from './registration.js';
+import { isGatewayMock, resolveGatewaySettings } from './settings.js';
 import { creditWallet } from './wallet.js';
 
 /** §1 — the one-time membership fee ($20.00), paid by every new member. */
@@ -18,8 +19,8 @@ export type PaymentPurpose = (typeof PURPOSES)[number];
 
 export interface PaymentRequestBody {
   amount: string;
-  asset: 'USDT';
-  network: 'trc20';
+  asset: string;
+  network: string;
   reference: string;
   description: string;
   return_url: string;
@@ -35,6 +36,9 @@ export function buildPaymentRequestBody(input: {
   amountCents: number;
   purpose: PaymentPurpose;
   returnUrl: string;
+  /** Operator-configured rail; defaults keep the pinned USDT/TRC20 contract. */
+  asset?: string;
+  network?: string;
 }): PaymentRequestBody {
   const dollars = (input.amountCents / 100).toFixed(2);
   const description =
@@ -43,8 +47,8 @@ export function buildPaymentRequestBody(input: {
       : `Aglotrends wallet deposit — $${dollars}`;
   return {
     amount: dollars,
-    asset: 'USDT',
-    network: 'trc20',
+    asset: input.asset ?? 'USDT',
+    network: input.network ?? 'trc20',
     reference: input.paymentRef,
     description,
     return_url: input.returnUrl,
@@ -92,7 +96,10 @@ async function requestGatewayCheckout(input: {
   amountCents: number;
   purpose: PaymentPurpose;
 }): Promise<{ gatewayTxid: string | null; paymentUrl: string }> {
-  if (isPaymentMockMode()) {
+  // Gateway config resolves from the DB (console-managed) over the environment,
+  // so a SUPERADMIN can point the rail at a live merchant without a redeploy.
+  const gw = await resolveGatewaySettings();
+  if (isGatewayMock(gw)) {
     const gatewayTxid = `mock-${randomUUID()}`;
     return {
       gatewayTxid,
@@ -104,12 +111,14 @@ async function requestGatewayCheckout(input: {
     amountCents: input.amountCents,
     purpose: input.purpose,
     returnUrl: `${config.APP_URL.replace(/\/$/, '')}/wallet`,
+    asset: gw.asset,
+    network: gw.network,
   });
-  const res = await fetch(`${config.PAY2CRYPTO_API_URL}/v1/payment-requests`, {
+  const res = await fetch(`${gw.apiUrl}/v1/payment-requests`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.PAY2CRYPTO_TOKEN}`,
+      Authorization: `Bearer ${gw.token}`,
     },
     body: JSON.stringify(body),
   });

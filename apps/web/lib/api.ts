@@ -714,3 +714,135 @@ export async function fetchAuditLog(): Promise<AuditEntryDto[]> {
   const data = await request<{ entries: AuditEntryDto[] }>("/admin/audit");
   return data.entries;
 }
+
+/* ----------------------------------------------------------- admin: staff */
+
+export interface StaffMemberDto {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  status: AccountStatus;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export async function fetchAdminStaff(): Promise<StaffMemberDto[]> {
+  const data = await request<{ staff: StaffMemberDto[] }>("/admin/staff");
+  return data.staff;
+}
+
+/** Provision a staff account. SUPERADMIN only — the API enforces it. */
+export async function createStaff(input: {
+  email: string;
+  fullName: string;
+  password: string;
+  role: "ADMIN" | "SUPERADMIN";
+}): Promise<StaffMemberDto> {
+  const data = await request<{ staff: StaffMemberDto }>("/admin/staff", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.staff;
+}
+
+/* -------------------------------------------------------- admin: settings */
+
+export interface GatewaySettingsDto {
+  provider: string;
+  apiUrl: string;
+  walletAddress: string;
+  network: string;
+  asset: string;
+  forceMock: boolean;
+  hasToken: boolean;
+  hasWebhookSecret: boolean;
+  tokenSource: "database" | "environment" | "unset";
+  webhookSecretSource: "database" | "environment" | "unset";
+  mockActive: boolean;
+}
+
+export interface PlatformSettingsDto {
+  name: string;
+  registrationOpen: boolean;
+}
+
+export interface AdminSettingsDto {
+  gateway: GatewaySettingsDto;
+  platform: PlatformSettingsDto;
+  /** Stored overrides, or null when the landing page is on its defaults. */
+  content: Record<string, unknown> | null;
+}
+
+export async function fetchAdminSettings(): Promise<AdminSettingsDto> {
+  return request<AdminSettingsDto>("/admin/settings");
+}
+
+/**
+ * Save the payment-gateway configuration. `token` / `webhookSecret` are
+ * write-only: pass a string to set, `null` to clear (env fallback resumes), or
+ * omit to leave untouched. Reads never return the values.
+ */
+export async function saveGatewaySettings(input: {
+  provider?: string;
+  apiUrl?: string;
+  walletAddress?: string;
+  network?: string;
+  asset?: string;
+  forceMock?: boolean;
+  token?: string | null;
+  webhookSecret?: string | null;
+}): Promise<GatewaySettingsDto> {
+  const data = await request<{ gateway: GatewaySettingsDto }>("/admin/settings/gateway", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return data.gateway;
+}
+
+export async function savePlatformSettings(input: {
+  name?: string;
+  registrationOpen?: boolean;
+}): Promise<PlatformSettingsDto> {
+  const data = await request<{ platform: PlatformSettingsDto }>("/admin/settings/platform", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return data.platform;
+}
+
+export async function saveSiteContent(content: unknown): Promise<Record<string, unknown>> {
+  const data = await request<{ content: Record<string, unknown> }>("/admin/settings/content", {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+  return data.content;
+}
+
+/* ----------------------------------------------------- admin: broadcasts */
+
+export type BroadcastAudience = "ALL" | "ACTIVE" | "INACTIVE" | "STAFF";
+
+export interface BroadcastResultDto {
+  recipients: number;
+  emailsSent: number;
+}
+
+export async function sendBroadcast(input: {
+  title: string;
+  body: string;
+  link?: string | null;
+  audience: BroadcastAudience;
+  sendEmail?: boolean;
+}): Promise<BroadcastResultDto> {
+  const data = await request<{ result: BroadcastResultDto }>("/admin/notifications/broadcast", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.result;
+}
+
+export async function fetchBroadcasts(): Promise<AuditEntryDto[]> {
+  const data = await request<{ broadcasts: AuditEntryDto[] }>("/admin/notifications");
+  return data.broadcasts;
+}

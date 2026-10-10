@@ -1,14 +1,23 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db.js';
 import { asyncHandler } from '../lib/async.js';
 import { ApiError } from '../lib/errors.js';
-import { requireAuth, requireStaff } from '../lib/auth.js';
+import { hashPassword, requireAuth, requireStaff, requireSuperAdmin } from '../lib/auth.js';
 import { audit } from '../services/audit.js';
 import { createSignal, publishSignal } from '../services/signals.js';
 import { recordProfitSettlement } from '../services/settlement.js';
 import { runRankEvaluation } from '../services/ranks.js';
+import { BROADCAST_AUDIENCES, dispatchBroadcast } from '../notifications/index.js';
+import {
+  gatewaySettingsView,
+  getPlatformSettings,
+  getSiteContent,
+  saveGatewaySettings,
+  savePlatformSettings,
+  saveSiteContent,
+} from '../services/settings.js';
 import { poolBalances } from '../services/pools.js';
 import { approvePayout, payPayout, rejectPayout } from '../services/payouts.js';
 import { cancelPendingPayment, confirmPaymentManually } from '../services/payment-service.js';
@@ -59,6 +68,30 @@ adminRouter.patch(
     }
     if (req.params.id! === req.user!.id && (body.role || body.status === 'SUSPENDED')) {
       throw ApiError.forbidden('You cannot change your own role or suspend yourself');
+    }
+
+    const [target] = await db
+      .select({ role: schema.users.role, status: schema.users.status })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.params.id!))
+      .limit(1);
+    if (!target) throw ApiError.notFound('Member not found');
+
+    // Never let the platform be locked out of its own superadmin seat: refuse
+    // to demote or suspend the last remaining active SUPERADMIN.
+    const demote = body.role !== undefined && body.role !== 'SUPERADMIN';
+    const suspend = body.status === 'SUSPENDED';
+    if (target.role === 'SUPERADMIN' && target.status === 'ACTIVE' && (demote || suspend)) {
+      const [counts] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.users)
+        .where(and(eq(schema.users.role, 'SUPERADMIN'), eq(schema.users.status, 'ACTIVE')));
+      if ((counts?.n ?? 0) <= 1) {
+        throw ApiError.conflict(
+          'Cannot demote or suspend the last active SUPERADMIN',
+          'LAST_SUPERADMIN',
+        );
+      }
     }
 
     const [updated] = await db
@@ -417,6 +450,200 @@ adminRouter.post(
     const payout = await payPayout(req.params.id!, req.user!.id);
     await audit(req.user!.id, 'payout.pay', 'payout', req.params.id!);
     res.json({ payout });
+  }),
+);
+
+/* ----------------------------------------------------------------- staff */
+
+/** Columns safe to return for a staff account — never the password hash. */
+const staffColumns = {
+  id: schema.users.id,
+  email: schema.users.email,
+  fullName: schema.users.fullName,
+  role: schema.users.role,
+  status: schema.users.status,
+  createdAt: schema.users.createdAt,
+  lastLoginAt: schema.users.lastLoginAt,
+};
+
+adminRouter.get(
+  '/staff',
+  asyncHandler(async (_req, res) => {
+    const rows = await db
+      .select(staffColumns)
+      .from(schema.users)
+      .where(inArray(schema.users.role, ['ADMIN', 'SUPERADMIN']))
+      .orderBy(desc(schema.users.createdAt));
+    res.json({ staff: rows });
+  }),
+);
+
+const createStaffSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().min(1).max(120),
+  password: z.string().min(8).max(200),
+  role: z.enum(['ADMIN', 'SUPERADMIN']),
+});
+
+/**
+ * Provision a staff account. SUPERADMIN-only: an ADMIN cannot mint peers or
+ * escalate anyone. Staff are `isActiveMember: true` on purpose — they are not
+ * in the compensation network, and marking them inactive would surface them in
+ * the "registered, never paid" chase list on the payments tab.
+ */
+adminRouter.post(
+  '/staff',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = createStaffSchema.parse(req.body);
+    const email = body.email.trim().toLowerCase();
+
+    const [existing] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1);
+    if (existing) throw ApiError.conflict('An account with that email already exists', 'EMAIL_TAKEN');
+
+    const [created] = await db
+      .insert(schema.users)
+      .values({
+        email,
+        fullName: body.fullName.trim(),
+        passwordHash: hashPassword(body.password),
+        role: body.role,
+        status: 'ACTIVE',
+        isActiveMember: true,
+      })
+      .returning(staffColumns);
+    if (!created) throw new Error('staff create failed');
+
+    await audit(req.user!.id, 'staff.create', 'user', created.id, { email, role: body.role });
+    res.status(201).json({ staff: created });
+  }),
+);
+
+/* -------------------------------------------------------------- settings */
+
+/**
+ * Everything the console needs to configure the platform in one read: the
+ * payment gateway (secrets reduced to booleans), the platform switches, and the
+ * stored site-content overrides (null when the landing page uses its defaults).
+ */
+adminRouter.get(
+  '/settings',
+  requireSuperAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json({
+      gateway: await gatewaySettingsView(),
+      platform: await getPlatformSettings(),
+      content: await getSiteContent(),
+    });
+  }),
+);
+
+const gatewaySettingsSchema = z.object({
+  provider: z.string().min(1).max(40).optional(),
+  apiUrl: z.string().max(300).optional(),
+  walletAddress: z.string().max(200).optional(),
+  network: z.string().min(1).max(40).optional(),
+  asset: z.string().min(1).max(20).optional(),
+  forceMock: z.boolean().optional(),
+  // null clears the stored override (env fallback takes over); undefined leaves it.
+  token: z.string().max(500).nullable().optional(),
+  webhookSecret: z.string().max(500).nullable().optional(),
+});
+
+adminRouter.put(
+  '/settings/gateway',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = gatewaySettingsSchema.parse(req.body);
+    const gateway = await saveGatewaySettings(body);
+    // Record WHICH fields changed — never the secret values themselves.
+    await audit(req.user!.id, 'settings.gateway.update', 'system', undefined, {
+      fields: Object.keys(body),
+      mockActive: gateway.mockActive,
+    });
+    res.json({ gateway });
+  }),
+);
+
+const platformSettingsSchema = z.object({
+  name: z.string().min(1).max(60).optional(),
+  registrationOpen: z.boolean().optional(),
+});
+
+adminRouter.put(
+  '/settings/platform',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = platformSettingsSchema.parse(req.body);
+    const platform = await savePlatformSettings(body);
+    await audit(req.user!.id, 'settings.platform.update', 'system', undefined, body);
+    res.json({ platform });
+  }),
+);
+
+const MAX_CONTENT_BYTES = 100_000;
+
+adminRouter.put(
+  '/settings/content',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = z.object({ content: z.unknown() }).parse(req.body);
+    const content = body.content;
+    if (typeof content !== 'object' || content === null || Array.isArray(content)) {
+      throw ApiError.badRequest('content must be a JSON object', 'INVALID_CONTENT');
+    }
+    if (JSON.stringify(content).length > MAX_CONTENT_BYTES) {
+      throw ApiError.badRequest('content is too large', 'CONTENT_TOO_LARGE');
+    }
+    await saveSiteContent(content as Record<string, unknown>);
+    await audit(req.user!.id, 'settings.content.update', 'system');
+    res.json({ content });
+  }),
+);
+
+/* ---------------------------------------------------------- notifications */
+
+const broadcastSchema = z.object({
+  title: z.string().min(1).max(140),
+  body: z.string().min(1).max(4000),
+  link: z.string().max(300).nullable().optional(),
+  audience: z.enum(BROADCAST_AUDIENCES),
+  sendEmail: z.boolean().optional(),
+});
+
+/**
+ * Post an announcement to a slice of the user base. Staff-level (ADMIN or
+ * SUPERADMIN) — running comms is routine operations, not a structural change.
+ */
+adminRouter.post(
+  '/notifications/broadcast',
+  asyncHandler(async (req, res) => {
+    const body = broadcastSchema.parse(req.body);
+    const result = await dispatchBroadcast(body);
+    await audit(req.user!.id, 'notification.broadcast', 'system', undefined, {
+      title: body.title,
+      audience: body.audience,
+      ...result,
+    });
+    res.status(201).json({ result });
+  }),
+);
+
+/** Broadcast history, read back from the audit trail (the delivery record). */
+adminRouter.get(
+  '/notifications',
+  asyncHandler(async (_req, res) => {
+    const rows = await db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.action, 'notification.broadcast'))
+      .orderBy(desc(schema.auditLog.createdAt))
+      .limit(50);
+    res.json({ broadcasts: rows });
   }),
 );
 

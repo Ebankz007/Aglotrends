@@ -29,6 +29,13 @@
       "when": 1791878813276,
       "tag": "0003_remarkable_stepford_cuckoos",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791886381134,
+      "tag": "0004_normal_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

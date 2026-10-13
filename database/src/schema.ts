@@ -78,6 +78,37 @@ export const kycStatusEnum = pgEnum('kyc_status', [
 /** Platform transaction fee — collected per inbound gateway payment, settled by hand. */
 export const platformFeeStatusEnum = pgEnum('platform_fee_status', ['PENDING', 'SETTLED']);
 
+/* ------------------------------------------- education / events / support */
+
+/** Education resource shape — an article, a video, or an outbound link. */
+export const educationResourceTypeEnum = pgEnum('education_resource_type', [
+  'ARTICLE',
+  'VIDEO',
+  'LINK',
+]);
+
+export const eventRegistrationStatusEnum = pgEnum('event_registration_status', [
+  'GOING',
+  'CANCELLED',
+]);
+
+export const supportTicketStatusEnum = pgEnum('support_ticket_status', [
+  'OPEN',
+  'PENDING',
+  'RESOLVED',
+  'CLOSED',
+]);
+
+export const supportTicketPriorityEnum = pgEnum('support_ticket_priority', [
+  'LOW',
+  'NORMAL',
+  'HIGH',
+  'URGENT',
+]);
+
+/** Who authored a support message — the member or the operator. */
+export const supportAuthorRoleEnum = pgEnum('support_author_role', ['MEMBER', 'STAFF']);
+
 /* --------------------------------------------------------------- identity */
 
 export const users = pgTable('users', {
@@ -448,6 +479,126 @@ export const kycProfiles = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('kyc_profiles_user_idx').on(t.userId)],
+);
+
+/* ------------------------------------------------------------- education */
+
+/**
+ * Learning resources shown in the member portal. Operator-authored; a member
+ * only ever sees `isPublished` rows. `body` is plain text/markdown, `url` is
+ * the external target for VIDEO/LINK resources.
+ */
+export const educationResources = pgTable(
+  'education_resources',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    title: text('title').notNull(),
+    summary: text('summary'),
+    body: text('body'),
+    category: text('category').notNull().default('GENERAL'),
+    /** Free-form level label (BEGINNER / INTERMEDIATE / ADVANCED / …). */
+    level: text('level'),
+    resourceType: educationResourceTypeEnum('resource_type').notNull().default('ARTICLE'),
+    url: text('url'),
+    coverImageUrl: text('cover_image_url'),
+    isPublished: boolean('is_published').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('education_resources_published_idx').on(t.isPublished),
+    index('education_resources_sort_idx').on(t.sortOrder),
+  ],
+);
+
+/* ---------------------------------------------------------------- events */
+
+/**
+ * Scheduled events (webinars, workshops, meetups). Members RSVP; the RSVP is a
+ * soft intent recorded here, not a payment. `startsAt` drives the upcoming/past
+ * split on the member side.
+ */
+export const events = pgTable(
+  'events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    title: text('title').notNull(),
+    description: text('description'),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    location: text('location'),
+    url: text('url'),
+    coverImageUrl: text('cover_image_url'),
+    isPublished: boolean('is_published').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('events_starts_idx').on(t.startsAt),
+    index('events_published_idx').on(t.isPublished),
+  ],
+);
+
+/** One RSVP per member per event — re-RSVPing upserts, never duplicates. */
+export const eventRegistrations = pgTable(
+  'event_registrations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    status: eventRegistrationStatusEnum('status').notNull().default('GOING'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('event_registrations_event_user_idx').on(t.eventId, t.userId)],
+);
+
+/* --------------------------------------------------------------- support */
+
+/**
+ * Member support tickets. A ticket is a thread of `supportMessages`; the
+ * denormalised `lastMessageAt` lets both inboxes sort by recency without a
+ * join. Status is operator-owned — a member reply reopens a RESOLVED ticket.
+ */
+export const supportTickets = pgTable(
+  'support_tickets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    subject: text('subject').notNull(),
+    category: text('category').notNull().default('GENERAL'),
+    priority: supportTicketPriorityEnum('priority').notNull().default('NORMAL'),
+    status: supportTicketStatusEnum('status').notNull().default('OPEN'),
+    lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('support_tickets_user_idx').on(t.userId),
+    index('support_tickets_status_idx').on(t.status),
+    index('support_tickets_last_message_idx').on(t.lastMessageAt),
+  ],
+);
+
+export const supportMessages = pgTable(
+  'support_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ticketId: uuid('ticket_id')
+      .notNull()
+      .references(() => supportTickets.id),
+    authorId: uuid('author_id').references(() => users.id),
+    authorRole: supportAuthorRoleEnum('author_role').notNull(),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('support_messages_ticket_idx').on(t.ticketId)],
 );
 
 /* ------------------------------------------------ notifications / audit */

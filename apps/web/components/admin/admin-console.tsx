@@ -15,6 +15,9 @@ import { SettlementsTab, PoolsTab, PayoutsTab } from "@/components/admin/finance
 import { PaymentsTab } from "@/components/admin/payments-tab";
 import { FeesTab } from "@/components/admin/fees-tab";
 import { KycTab } from "@/components/admin/kyc-tab";
+import { EducationTab } from "@/components/admin/education-tab";
+import { EventsTab } from "@/components/admin/events-tab";
+import { SupportTab } from "@/components/admin/support-tab";
 import { RanksTab } from "@/components/admin/ranks-tab";
 import { AuditTab } from "@/components/admin/audit-tab";
 
@@ -36,6 +39,9 @@ const TABS = [
   { id: "payments", label: "Payments", superAdminOnly: false },
   { id: "fees", label: "Fees", superAdminOnly: true },
   { id: "kyc", label: "KYC", superAdminOnly: false },
+  { id: "education", label: "Education", superAdminOnly: false },
+  { id: "events", label: "Events", superAdminOnly: false },
+  { id: "support", label: "Support", superAdminOnly: false },
   { id: "payouts", label: "Payouts", superAdminOnly: false },
   { id: "audit", label: "Audit", superAdminOnly: false },
 ] as const;
@@ -80,6 +86,9 @@ export function AdminConsole() {
       {tab === "payments" && <PaymentsTab />}
       {tab === "fees" && <FeesTab />}
       {tab === "kyc" && <KycTab />}
+      {tab === "education" && <EducationTab />}
+      {tab === "events" && <EventsTab />}
+      {tab === "support" && <SupportTab />}
       {tab === "payouts" && <PayoutsTab />}
       {tab === "audit" && <AuditTab />}
     </PortalPage>

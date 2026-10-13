@@ -83,4 +83,51 @@ body {
       transparent
     );
   }
+
+  /* Modern member surface — layered gradient, hairline border, soft lift.
+     Used across the Education / Events / Support modules. */
+  .surface {
+    position: relative;
+    background: linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.055),
+      rgba(255, 255, 255, 0.02) 55%,
+      rgba(255, 255, 255, 0.008)
+    );
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 1.25rem;
+    box-shadow:
+      0 18px 40px -28px rgba(0, 0, 0, 0.9),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+
+  .surface-hover:hover {
+    border-color: rgba(232, 184, 75, 0.38);
+    transform: translateY(-2px);
+    box-shadow:
+      0 22px 46px -26px rgba(0, 0, 0, 0.95),
+      0 0 0 1px rgba(232, 184, 75, 0.12),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  }
+
+  /* Gold top hairline — marks a card as a feature/accent surface. */
+  .gold-top::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    border-radius: 1.25rem 1.25rem 0 0;
+    background: linear-gradient(90deg, transparent, rgba(232, 184, 75, 0.65), transparent);
+  }
+
+  /* Soft gold halo for hero/feature tiles. */
+  .glow-gold {
+    box-shadow:
+      0 0 0 1px rgba(232, 184, 75, 0.22),
+      0 24px 60px -30px rgba(232, 184, 75, 0.45);
+  }
 }

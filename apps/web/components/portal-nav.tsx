@@ -1,9 +1,12 @@
 import Link from "next/link";
 import {
   BellIcon,
+  BookIcon,
   BrokerIcon,
+  CalendarIcon,
   CommunityIcon,
   DashboardIcon,
+  LifebuoyIcon,
   NetworkIcon,
   SettingsIcon,
   SignalIcon,
@@ -16,6 +19,9 @@ const items = [
   { href: "/signals", label: "Signals", hint: "Published trade ideas", Icon: SignalIcon },
   { href: "/brokers", label: "Copy Trading", hint: "Broker links & accounts", Icon: BrokerIcon },
   { href: "/community", label: "Community", hint: "Traders & strategies", Icon: CommunityIcon },
+  { href: "/education", label: "Education", hint: "Courses, guides & resources", Icon: BookIcon },
+  { href: "/events", label: "Events", hint: "Webinars, workshops & meetups", Icon: CalendarIcon },
+  { href: "/support", label: "Support", hint: "Help centre & tickets", Icon: LifebuoyIcon },
   { href: "/notifications", label: "Notifications", hint: "Alerts & channels", Icon: BellIcon },
   { href: "/settings", label: "Settings", hint: "Profile & preferences", Icon: SettingsIcon },
   { href: "/dashboard", label: "Dashboard", hint: "Overview", Icon: DashboardIcon },

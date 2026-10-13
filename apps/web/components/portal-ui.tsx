@@ -186,12 +186,14 @@ export function Stat({
   );
 }
 
-/** Small status pill. */
+/** Small status pill. Pass `className` to override the tone colours entirely. */
 export function Badge({
   tone = "neutral",
+  className = "",
   children,
 }: {
   tone?: "neutral" | "ok" | "warn" | "danger" | "info";
+  className?: string;
   children: React.ReactNode;
 }) {
   const tones = {
@@ -203,7 +205,9 @@ export function Badge({
   } as const;
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${tones[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
+        className || tones[tone]
+      }`}
     >
       {children}
     </span>

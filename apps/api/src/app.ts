@@ -15,6 +15,10 @@ import { adminRouter } from './routes/admin.js';
 import { paymentsRouter } from './routes/payments.js';
 import { contentRouter } from './routes/content.js';
 import { kycRouter } from './routes/kyc.js';
+import { educationRouter } from './routes/education.js';
+import { eventsRouter } from './routes/events.js';
+import { supportRouter } from './routes/support.js';
+import { adminContentRouter } from './routes/admin-content.js';
 import { webhooksRouter } from './routes/webhooks.js';
 
 export function createApp(): express.Express {
@@ -36,8 +40,12 @@ export function createApp(): express.Express {
   app.use('/api/signals', signalsRouter);
   app.use('/api/brokers', brokersRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/admin', adminContentRouter);
   app.use('/api/content', contentRouter);
   app.use('/api/kyc', kycRouter);
+  app.use('/api/education', educationRouter);
+  app.use('/api/events', eventsRouter);
+  app.use('/api/support', supportRouter);
   app.use('/api/payments', paymentsRouter);
   app.use('/api/webhooks', webhooksRouter);
 

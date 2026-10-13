@@ -1006,3 +1006,263 @@ export async function reviewKyc(
   });
   return data.kyc;
 }
+
+/* ------------------------------------------------------------- education */
+
+export type EducationResourceType = "ARTICLE" | "VIDEO" | "LINK";
+
+export interface EducationResourceDto {
+  id: string;
+  title: string;
+  summary: string | null;
+  body: string | null;
+  category: string;
+  level: string | null;
+  resourceType: EducationResourceType;
+  url: string | null;
+  coverImageUrl: string | null;
+  isPublished: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EducationResourceInputDto {
+  title: string;
+  summary?: string | null;
+  body?: string | null;
+  category?: string;
+  level?: string | null;
+  resourceType?: EducationResourceType;
+  url?: string | null;
+  coverImageUrl?: string | null;
+  isPublished?: boolean;
+  sortOrder?: number;
+}
+
+export async function fetchEducationResources(): Promise<EducationResourceDto[]> {
+  const data = await request<{ resources: EducationResourceDto[] }>("/education");
+  return data.resources;
+}
+
+export async function fetchEducationResource(id: string): Promise<EducationResourceDto> {
+  const data = await request<{ resource: EducationResourceDto }>(`/education/${id}`);
+  return data.resource;
+}
+
+export async function fetchAdminEducation(): Promise<EducationResourceDto[]> {
+  const data = await request<{ resources: EducationResourceDto[] }>("/admin/education");
+  return data.resources;
+}
+
+export async function createEducationResource(
+  input: EducationResourceInputDto,
+): Promise<EducationResourceDto> {
+  const data = await request<{ resource: EducationResourceDto }>("/admin/education", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.resource;
+}
+
+export async function updateEducationResource(
+  id: string,
+  patch: Partial<EducationResourceInputDto>,
+): Promise<EducationResourceDto> {
+  const data = await request<{ resource: EducationResourceDto }>(`/admin/education/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  return data.resource;
+}
+
+export async function deleteEducationResource(id: string): Promise<void> {
+  await request<{ resource: EducationResourceDto }>(`/admin/education/${id}`, { method: "DELETE" });
+}
+
+/* ---------------------------------------------------------------- events */
+
+export type RsvpStatus = "GOING" | "CANCELLED";
+
+export interface EventDto {
+  id: string;
+  title: string;
+  description: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  location: string | null;
+  url: string | null;
+  coverImageUrl: string | null;
+  isPublished: boolean;
+  createdAt: string;
+  updatedAt: string;
+  /** Live count of GOING members. */
+  rsvpCount: number;
+  /** The caller's own RSVP, or null when they have not responded. */
+  myRsvp: RsvpStatus | null;
+}
+
+/** Admin event rows carry no per-caller RSVP decoration. */
+export type AdminEventDto = Omit<EventDto, "rsvpCount" | "myRsvp">;
+
+export interface EventInputDto {
+  title: string;
+  description?: string | null;
+  startsAt: string;
+  endsAt?: string | null;
+  location?: string | null;
+  url?: string | null;
+  coverImageUrl?: string | null;
+  isPublished?: boolean;
+}
+
+export interface EventRegistrationDto {
+  id: string;
+  userId: string;
+  status: RsvpStatus;
+  createdAt: string;
+  userEmail: string | null;
+  userFullName: string | null;
+}
+
+export async function fetchEvents(): Promise<{ upcoming: EventDto[]; past: EventDto[] }> {
+  return request<{ upcoming: EventDto[]; past: EventDto[] }>("/events");
+}
+
+export async function fetchEvent(id: string): Promise<EventDto> {
+  const data = await request<{ event: EventDto }>(`/events/${id}`);
+  return data.event;
+}
+
+export async function rsvpEvent(id: string): Promise<void> {
+  await request<{ ok: true }>(`/events/${id}/rsvp`, { method: "POST", body: JSON.stringify({}) });
+}
+
+export async function cancelEventRsvp(id: string): Promise<void> {
+  await request<{ ok: true }>(`/events/${id}/rsvp`, { method: "DELETE" });
+}
+
+export async function fetchAdminEvents(): Promise<AdminEventDto[]> {
+  const data = await request<{ events: AdminEventDto[] }>("/admin/events");
+  return data.events;
+}
+
+export async function createEvent(input: EventInputDto): Promise<AdminEventDto> {
+  const data = await request<{ event: AdminEventDto }>("/admin/events", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.event;
+}
+
+export async function updateEvent(
+  id: string,
+  patch: Partial<EventInputDto>,
+): Promise<AdminEventDto> {
+  const data = await request<{ event: AdminEventDto }>(`/admin/events/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  return data.event;
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  await request<{ event: AdminEventDto }>(`/admin/events/${id}`, { method: "DELETE" });
+}
+
+export async function fetchEventRegistrations(id: string): Promise<EventRegistrationDto[]> {
+  const data = await request<{ registrations: EventRegistrationDto[] }>(
+    `/admin/events/${id}/registrations`,
+  );
+  return data.registrations;
+}
+
+/* --------------------------------------------------------------- support */
+
+export type TicketStatus = "OPEN" | "PENDING" | "RESOLVED" | "CLOSED";
+export type TicketPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
+
+export interface SupportTicketDto {
+  id: string;
+  userId: string;
+  subject: string;
+  category: string;
+  priority: TicketPriority;
+  status: TicketStatus;
+  lastMessageAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupportMessageDto {
+  id: string;
+  ticketId: string;
+  authorId: string | null;
+  authorRole: "MEMBER" | "STAFF";
+  body: string;
+  createdAt: string;
+}
+
+export interface SupportThreadDto {
+  ticket: SupportTicketDto;
+  messages: SupportMessageDto[];
+}
+
+export interface AdminTicketDto extends SupportTicketDto {
+  userEmail: string | null;
+  userFullName: string | null;
+}
+
+export async function fetchMyTickets(): Promise<SupportTicketDto[]> {
+  const data = await request<{ tickets: SupportTicketDto[] }>("/support");
+  return data.tickets;
+}
+
+export async function createTicket(input: {
+  subject: string;
+  category?: string;
+  priority?: TicketPriority;
+  message: string;
+}): Promise<SupportTicketDto> {
+  const data = await request<{ ticket: SupportTicketDto }>("/support", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.ticket;
+}
+
+export async function fetchMyTicket(id: string): Promise<SupportThreadDto> {
+  return request<SupportThreadDto>(`/support/${id}`);
+}
+
+export async function replyToTicket(id: string, body: string): Promise<SupportThreadDto> {
+  return request<SupportThreadDto>(`/support/${id}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export async function fetchAdminTickets(status?: TicketStatus): Promise<AdminTicketDto[]> {
+  const qs = status ? `?status=${status}` : "";
+  const data = await request<{ tickets: AdminTicketDto[] }>(`/admin/support${qs}`);
+  return data.tickets;
+}
+
+export async function fetchAdminTicket(id: string): Promise<SupportThreadDto> {
+  return request<SupportThreadDto>(`/admin/support/${id}`);
+}
+
+export async function replyToTicketAsStaff(id: string, body: string): Promise<SupportThreadDto> {
+  return request<SupportThreadDto>(`/admin/support/${id}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export async function setTicketStatus(id: string, status: TicketStatus): Promise<SupportTicketDto> {
+  const data = await request<{ ticket: SupportTicketDto }>(`/admin/support/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+  return data.ticket;
+}

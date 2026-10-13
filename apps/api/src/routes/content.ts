@@ -1,23 +1,22 @@
 import { Router } from 'express';
 import { asyncHandler } from '../lib/async.js';
-import { getSiteContent } from '../services/settings.js';
+import { getSiteContent, getSocialSettings } from '../services/settings.js';
 
 export const contentRouter = Router();
 
 /**
- * Public marketing-content overrides for the landing page. Unauthenticated by
- * design — this is copy the whole world reads. It carries no secrets: the
- * settings service only ever stores operator-authored strings here.
- *
- * Returns `{ content: null }` when nothing has been customised, so the web app
- * can fall back to its own built-in defaults rather than shipping copy twice.
+ * Public marketing surface for the landing page and footer. Unauthenticated by
+ * design — this is copy the whole world reads. It carries two things: the
+ * landing-page overrides (`content: null` when the page uses its defaults, so
+ * the web app need not ship the copy twice) and the ENABLED social links.
+ * Neither is a secret: the settings service stores only operator-authored copy.
  */
 contentRouter.get(
   '/',
   asyncHandler(async (_req, res) => {
-    const content = await getSiteContent();
+    const [content, social] = await Promise.all([getSiteContent(), getSocialSettings()]);
     // Short public cache: content changes rarely, and a stale minute is fine.
     res.set('Cache-Control', 'public, max-age=30');
-    res.json({ content });
+    res.json({ content, social });
   }),
 );

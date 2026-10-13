@@ -1,5 +1,18 @@
 import Link from "next/link";
 import { CandleBackground } from "@/components/candle-background";
+import { DEFAULT_SITE_CONTENT, mergeSiteContent, type SiteContent } from "@/lib/site-content";
+
+// Footer copy and social links are console-editable, so revalidate rather than freeze.
+export const revalidate = 60;
+
+/** The public shape of a footer social link — a subset of the admin DTO. */
+interface FooterSocialLink {
+  id: string;
+  platform: string;
+  label: string;
+  url: string;
+  handle: string;
+}
 
 const navLinks = [
   { href: "#how-it-works", label: "How it works" },
@@ -31,15 +44,42 @@ const footerNav = [
 
 const legal = ["Risk disclosure", "Terms of Service", "Privacy Policy"];
 
-export default function MarketingLayout({
+/**
+ * Load the operator's footer copy and social links. Any failure — API down, bad
+ * JSON, slow response — degrades to the built-in defaults rather than breaking
+ * the public site. The marketing surface must never 500.
+ */
+async function loadFooter(): Promise<{ content: SiteContent; social: FooterSocialLink[] }> {
+  try {
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
+    const res = await fetch(`${base}/api/content`, { next: { revalidate: 60 } });
+    if (!res.ok) return { content: DEFAULT_SITE_CONTENT, social: [] };
+    const data = (await res.json()) as { content?: unknown; social?: unknown };
+    // The API returns `social: { links: [...] }`, not a bare array.
+    const raw = (data.social as { links?: unknown } | undefined)?.links;
+    const social = Array.isArray(raw)
+      ? (raw as FooterSocialLink[]).filter(
+          (s) => s && typeof s.url === "string" && typeof s.id === "string",
+        )
+      : [];
+    return { content: mergeSiteContent(data.content), social };
+  } catch {
+    return { content: DEFAULT_SITE_CONTENT, social: [] };
+  }
+}
+
+export default async function MarketingLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const { content, social } = await loadFooter();
+  const { contact, footer } = content;
+
   return (
     <div className="min-h-screen bg-night text-soft">
       <div className="app-glow pointer-events-none fixed inset-0" aria-hidden="true" />
       <CandleBackground />
 
-      {/* Risk banner */}
+      {/* Risk banner — compliance-locked, not console-editable. */}
       <div className="relative border-b border-white/10 bg-navy/50 backdrop-blur-sm">
         <p className="mx-auto max-w-6xl px-4 py-2 text-center text-[11px] text-mist sm:px-6">
           Trading and copy trading involve substantial risk and may result in loss. Returns and
@@ -91,14 +131,57 @@ export default function MarketingLayout({
                 </span>
                 Aglotrends
               </Link>
-              <p className="mt-4 max-w-xs text-sm text-mist">
-                Copy trading, signals, a referral network, and a trader community — built around
-                personal broker custody and visible controls.
-              </p>
+              <p className="mt-4 max-w-xs text-sm text-mist">{footer.tagline}</p>
               <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-gold/20 bg-gold/5 px-3 py-1 text-[11px] font-bold text-gold-2">
                 <span className="h-1.5 w-1.5 rounded-full bg-gold" />
-                Platform live — registration open
+                {footer.badge}
               </p>
+
+              {social.length > 0 && (
+                <div className="mt-5">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-soft">Follow</h3>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {social.map((s) => (
+                      <a
+                        key={s.id}
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-mist transition hover:border-gold/30 hover:text-gold-2"
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-gold" />
+                        {s.handle || s.label}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(contact.email || contact.phone || contact.address) && (
+                <div className="mt-5">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-soft">Contact</h3>
+                  <ul className="mt-3 space-y-1.5 text-sm text-mist">
+                    {contact.email && (
+                      <li>
+                        <a href={`mailto:${contact.email}`} className="transition hover:text-gold-2">
+                          {contact.email}
+                        </a>
+                      </li>
+                    )}
+                    {contact.phone && (
+                      <li>
+                        <a
+                          href={`tel:${contact.phone.replace(/[^+0-9]/g, "")}`}
+                          className="transition hover:text-gold-2"
+                        >
+                          {contact.phone}
+                        </a>
+                      </li>
+                    )}
+                    {contact.address && <li className="whitespace-pre-line">{contact.address}</li>}
+                  </ul>
+                </div>
+              )}
             </div>
 
             {footerNav.map((col) => (
@@ -131,6 +214,8 @@ export default function MarketingLayout({
           <div className="gold-rule mt-10 h-px w-full" />
 
           <div className="pt-6">
+            {/* Compliance-locked. Not console-editable — a marketing edit must
+                never be able to remove the risk disclosure. */}
             <p className="text-xs leading-relaxed text-muted">
               Trading and copy trading involve substantial risk and may not be suitable for everyone.
               Leverage can magnify gains and losses. Past performance is not indicative of future

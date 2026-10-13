@@ -9,28 +9,14 @@ import {
   hashPassword,
   requireAuth,
   setSessionCookie,
+  signChallengeToken,
   signToken,
   verifyPassword,
 } from '../lib/auth.js';
+import { publicUser } from '../lib/user-view.js';
 import { getPlatformSettings } from '../services/settings.js';
 
 export const authRouter = Router();
-
-type UserRow = typeof schema.users.$inferSelect;
-
-function publicUser(u: UserRow) {
-  return {
-    id: u.id,
-    email: u.email,
-    fullName: u.fullName,
-    role: u.role,
-    status: u.status,
-    sponsorId: u.sponsorId,
-    isActiveMember: u.isActiveMember,
-    highestAssociateRank: u.highestAssociateRank,
-    highestLeadershipRank: u.highestLeadershipRank,
-  };
-}
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -116,6 +102,14 @@ authRouter.post(
     }
     if (user.status === 'SUSPENDED') throw ApiError.forbidden('Account suspended');
 
+    // The password is correct, but a password alone does not earn a session
+    // when a second factor is enrolled. Hand back a short-lived, single-purpose
+    // challenge token instead; /auth/2fa/verify trades it for a real session.
+    if (user.twoFactorEnabled) {
+      res.json({ twoFactorRequired: true, challengeToken: signChallengeToken(user.id) });
+      return;
+    }
+
     await db.update(schema.users).set({ lastLoginAt: new Date() }).where(eq(schema.users.id, user.id));
     const token = signToken({ id: user.id, role: user.role });
     setSessionCookie(res, token);
@@ -129,7 +123,13 @@ authRouter.get(
   asyncHandler(async (req, res) => {
     const [user] = await db.select().from(schema.users).where(eq(schema.users.id, req.user!.id));
     if (!user) throw ApiError.notFound('User not found');
-    res.json({ user: publicUser(user) });
+    const isStaff = user.role === 'ADMIN' || user.role === 'SUPERADMIN';
+    res.json({
+      user: publicUser(user),
+      // Staff who have not enrolled cannot reach the console; the client uses
+      // this to route them straight to enrolment instead of a wall of 403s.
+      twoFactorRequired: isStaff && !user.twoFactorEnabled,
+    });
   }),
 );
 

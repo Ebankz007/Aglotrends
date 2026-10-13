@@ -131,8 +131,23 @@ export const users = pgTable('users', {
   // Security
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
+  // The TOTP seed, encrypted with the same envelope as the gateway secrets
+  // (lib/crypto.ts). It is a bearer credential: whoever holds it can mint valid
+  // codes forever, so it is never stored in the clear.
   twoFactorSecret: text('two_factor_secret'),
+  // Recovery codes are one-shot fallbacks for a lost device. Stored hashed
+  // (sha-256), never in the clear, for the same reason as the seed.
+  twoFactorRecoveryCodes: jsonb('two_factor_recovery_codes').$type<string[]>().notNull().default([]),
+  twoFactorEnrolledAt: timestamp('two_factor_enrolled_at', { withTimezone: true }),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+
+  // Admin access control. Meaningless for MEMBER; SUPERADMIN bypasses it
+  // structurally. `permissions` maps an admin area -> 'VIEW' | 'MANAGE'; an area
+  // absent from the map is NONE. `viewOnly` is a blunt override that caps every
+  // granted area at VIEW, so read access can be handed out without touching the
+  // matrix — and re-granting write access is one switch, not nine.
+  permissions: jsonb('permissions').$type<Record<string, string>>().notNull().default({}),
+  viewOnly: boolean('view_only').notNull().default(false),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

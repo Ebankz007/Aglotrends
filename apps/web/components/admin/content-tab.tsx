@@ -321,6 +321,43 @@ export function ContentTab() {
         </div>
       </Panel>
 
+      <Panel title="Footer & contact">
+        <div className="flex flex-col gap-3">
+          <TextArea
+            label="Footer tagline"
+            value={content.footer.tagline}
+            onChange={(v) => update("footer", { ...content.footer, tagline: v })}
+          />
+          <Field
+            label="Status badge"
+            value={content.footer.badge}
+            onChange={(v) => update("footer", { ...content.footer, badge: v })}
+          />
+          <Field
+            label="Contact email"
+            value={content.contact.email}
+            onChange={(v) => update("contact", { ...content.contact, email: v })}
+            placeholder="support@aglotrends.com"
+          />
+          <Field
+            label="Contact phone (optional)"
+            value={content.contact.phone}
+            onChange={(v) => update("contact", { ...content.contact, phone: v })}
+            placeholder="+1 555 000 0000"
+          />
+          <TextArea
+            label="Address (optional)"
+            value={content.contact.address}
+            onChange={(v) => update("contact", { ...content.contact, address: v })}
+            rows={2}
+          />
+          <Note tone="info">
+            Social links live in the <strong>Social</strong> tab. The footer&apos;s risk paragraph is
+            fixed in code and is not editable here.
+          </Note>
+        </div>
+      </Panel>
+
       <Panel title="Publish">
         <p className="mb-3 text-sm text-mist">
           The landing page revalidates within a minute of saving. Compliance sections — custody,

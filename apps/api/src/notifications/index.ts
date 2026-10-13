@@ -1,9 +1,9 @@
 import { eq, inArray } from 'drizzle-orm';
 import { db, schema } from '../db.js';
 import { logger } from '../logger.js';
-import { emailConfigured, sendEmail } from './email.js';
-import { sendTelegram, telegramConfigured } from './telegram.js';
-import { sendWhatsApp, whatsappConfigured } from './whatsapp.js';
+import { emailConfig, emailConfigured, sendEmail } from './email.js';
+import { sendTelegram, telegramConfig, telegramConfigured } from './telegram.js';
+import { sendWhatsApp, whatsappConfig, whatsappConfigured } from './whatsapp.js';
 
 type Signal = typeof schema.signals.$inferSelect;
 type Channel = 'IN_APP' | 'EMAIL' | 'WHATSAPP' | 'TELEGRAM';
@@ -48,6 +48,17 @@ async function recordDelivery(
  */
 export async function dispatchSignalNotifications(signal: Signal): Promise<void> {
   const body = formatSignal(signal);
+  // Resolve the channel configs ONCE for the whole run, not once per member —
+  // a signal to 10k members must not be 10k `app_config` reads.
+  const [emailCfg, whatsappCfg, telegramCfg] = await Promise.all([
+    emailConfig(),
+    whatsappConfig(),
+    telegramConfig(),
+  ]);
+  const emailReady = emailConfigured(emailCfg);
+  const whatsappReady = whatsappConfigured(whatsappCfg);
+  const telegramReady = telegramConfigured(telegramCfg);
+
   const members = await db
     .select({ id: schema.users.id, email: schema.users.email })
     .from(schema.users)
@@ -71,18 +82,18 @@ export async function dispatchSignalNotifications(signal: Signal): Promise<void>
     const attempts: Array<{ channel: Channel; enabled: boolean; run: () => Promise<unknown> }> = [
       {
         channel: 'EMAIL',
-        enabled: emailConfigured() && (prefs?.emailEnabled ?? true),
-        run: () => sendEmail(m.email, signal.title, body),
+        enabled: emailReady && (prefs?.emailEnabled ?? true),
+        run: () => sendEmail(m.email, signal.title, body, undefined, emailCfg),
       },
       {
         channel: 'WHATSAPP',
-        enabled: whatsappConfigured() && (prefs?.whatsappEnabled ?? false) && !!prefs?.whatsappNumber,
-        run: () => sendWhatsApp(prefs!.whatsappNumber!, body),
+        enabled: whatsappReady && (prefs?.whatsappEnabled ?? false) && !!prefs?.whatsappNumber,
+        run: () => sendWhatsApp(prefs!.whatsappNumber!, body, whatsappCfg),
       },
       {
         channel: 'TELEGRAM',
-        enabled: telegramConfigured() && (prefs?.telegramEnabled ?? false) && !!prefs?.telegramChatId,
-        run: () => sendTelegram(prefs!.telegramChatId!, body),
+        enabled: telegramReady && (prefs?.telegramEnabled ?? false) && !!prefs?.telegramChatId,
+        run: () => sendTelegram(prefs!.telegramChatId!, body, telegramCfg),
       },
     ];
 
@@ -160,10 +171,11 @@ export async function dispatchBroadcast(input: BroadcastInput): Promise<Broadcas
   }
 
   let emailsSent = 0;
-  if (input.sendEmail && emailConfigured()) {
+  const emailCfg = await emailConfig();
+  if (input.sendEmail && emailConfigured(emailCfg)) {
     for (const m of members) {
       try {
-        await sendEmail(m.email, input.title, input.body);
+        await sendEmail(m.email, input.title, input.body, undefined, emailCfg);
         emailsSent += 1;
       } catch (err) {
         logger.warn({ err, userId: m.id }, 'broadcast email failed');

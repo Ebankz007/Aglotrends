@@ -27,16 +27,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     },
   });
   if (!res.ok) {
-    let body: { error?: string; message?: string } | null = null;
+    let body: { error?: string; code?: string } | null = null;
     try {
-      body = (await res.json()) as { error?: string; message?: string };
+      body = (await res.json()) as { error?: string; code?: string };
     } catch {
       // non-JSON error body
     }
+    // The API sends { error: <human message>, code: <MACHINE_CODE> }. `code` is
+    // what callers branch on (TWO_FACTOR_REQUIRED, AREA_FORBIDDEN, ...), so it
+    // must carry the machine code, not the message.
     throw new ApiError(
       res.status,
-      body?.error ?? "REQUEST_ERROR",
-      body?.message ?? `Request failed (${res.status})`,
+      body?.code ?? "REQUEST_ERROR",
+      body?.error ?? `Request failed (${res.status})`,
     );
   }
   return res.json() as Promise<T>;
@@ -52,6 +55,37 @@ export function isAdminRole(role: UserRole | undefined | null): boolean {
   return role === "ADMIN" || role === "SUPERADMIN";
 }
 
+export type PermissionLevel = "NONE" | "VIEW" | "MANAGE";
+
+/**
+ * Admin areas. The server owns the authoritative list (labels and descriptions
+ * come from `fetchPermissionCatalog`), but the console needs the identifiers at
+ * compile time to map its tabs to areas.
+ */
+export type AdminArea =
+  | "MEMBERS"
+  | "BROKERS"
+  | "SIGNALS"
+  | "FINANCE"
+  | "KYC"
+  | "CONTENT"
+  | "SETTINGS"
+  | "STAFF"
+  | "AUDIT";
+
+export type PermissionMap = Partial<Record<AdminArea, PermissionLevel>>;
+
+export interface PermissionAreaDto {
+  id: AdminArea;
+  label: string;
+  description: string;
+}
+
+export interface PermissionCatalogDto {
+  areas: PermissionAreaDto[];
+  levels: PermissionLevel[];
+}
+
 export interface UserDto {
   id: string;
   email: string;
@@ -63,6 +97,38 @@ export interface UserDto {
   isActiveMember: boolean;
   highestAssociateRank: number;
   highestLeadershipRank: number;
+  /** Whether a TOTP second factor is enrolled. */
+  twoFactorEnabled: boolean;
+  /** Area grants. Empty for members. */
+  permissions: PermissionMap;
+  /** When true, every granted area is capped at VIEW. */
+  viewOnly: boolean;
+}
+
+/** Roles that can reach the admin console at all. */
+export function isStaffRole(role: UserRole | undefined | null): boolean {
+  return role === "ADMIN" || role === "SUPERADMIN";
+}
+
+/**
+ * Whether `user` can see `area`. SUPERADMIN bypasses grants structurally — the
+ * API does the same, so this is UX, not security.
+ */
+export function canViewArea(user: UserDto | null, area: AdminArea): boolean {
+  if (!user) return false;
+  if (user.role === "SUPERADMIN") return true;
+  return (user.permissions[area] ?? "NONE") !== "NONE";
+}
+
+/**
+ * Whether `user` can change things in `area`. A view-only staffer never can,
+ * regardless of the grant — the cap is applied server-side too.
+ */
+export function canManageArea(user: UserDto | null, area: AdminArea): boolean {
+  if (!user) return false;
+  if (user.role === "SUPERADMIN") return true;
+  if (user.viewOnly) return false;
+  return user.permissions[area] === "MANAGE";
 }
 
 export interface LedgerEntryDto {
@@ -280,10 +346,77 @@ export async function register(
   });
 }
 
-export async function login(email: string, password: string): Promise<{ user: UserDto }> {
-  return request<{ user: UserDto }>("/auth/login", {
+/**
+ * Step one of login. When the account has a second factor enrolled the API does
+ * NOT issue a session — it returns a short-lived challenge token that must be
+ * exchanged through `verifyTwoFactor`. Callers must branch on the result.
+ */
+export type LoginResult =
+  | { twoFactorRequired: true; challengeToken: string }
+  | { twoFactorRequired?: false; user: UserDto };
+
+export async function login(email: string, password: string): Promise<LoginResult> {
+  return request<LoginResult>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
+  });
+}
+
+/* ------------------------------------------------------- two-factor auth */
+
+export interface TwoFactorStatusDto {
+  enabled: boolean;
+  enrolledAt: string | null;
+  recoveryCodesRemaining: number;
+}
+
+export interface TwoFactorSetupDto {
+  /** Base32 seed, for manual entry when a QR cannot be scanned. */
+  secret: string;
+  otpauthUri: string;
+  /** PNG data URI, rendered server-side so the seed never leaves the API. */
+  qrDataUrl: string;
+}
+
+/** Step two of login: trade the challenge token plus a code for a session. */
+export async function verifyTwoFactor(
+  challengeToken: string,
+  code: string,
+): Promise<{ user: UserDto }> {
+  return request<{ user: UserDto }>("/auth/2fa/verify", {
+    method: "POST",
+    body: JSON.stringify({ challengeToken, code }),
+  });
+}
+
+export async function fetchTwoFactorStatus(): Promise<TwoFactorStatusDto> {
+  return request<TwoFactorStatusDto>("/auth/2fa/status");
+}
+
+export async function setupTwoFactor(): Promise<TwoFactorSetupDto> {
+  return request<TwoFactorSetupDto>("/auth/2fa/setup", { method: "POST" });
+}
+
+/** Confirms enrolment. Returns the recovery codes, which are shown only once. */
+export async function enableTwoFactor(code: string): Promise<{ recoveryCodes: string[] }> {
+  return request<{ recoveryCodes: string[] }>("/auth/2fa/enable", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+/** Turning 2FA off is itself a downgrade, so it takes both factors. */
+export async function disableTwoFactor(password: string, code: string): Promise<void> {
+  await request<{ enabled: boolean }>("/auth/2fa/disable", {
+    method: "POST",
+    body: JSON.stringify({ password, code }),
+  });
+}
+
+export async function regenerateRecoveryCodes(code: string): Promise<{ recoveryCodes: string[] }> {
+  return request<{ recoveryCodes: string[] }>("/auth/2fa/recovery-codes", {
+    method: "POST",
+    body: JSON.stringify({ code }),
   });
 }
 
@@ -723,12 +856,36 @@ export interface StaffMemberDto {
   fullName: string;
   role: UserRole;
   status: AccountStatus;
+  permissions: PermissionMap;
+  viewOnly: boolean;
+  twoFactorEnabled: boolean;
+  twoFactorEnrolledAt: string | null;
   createdAt: string;
   lastLoginAt: string | null;
 }
 
 export async function fetchAdminStaff(): Promise<StaffMemberDto[]> {
   const data = await request<{ staff: StaffMemberDto[] }>("/admin/staff");
+  return data.staff;
+}
+
+/** The area catalog, so the matrix is rendered from the server's definition. */
+export async function fetchPermissionCatalog(): Promise<PermissionCatalogDto> {
+  return request<PermissionCatalogDto>("/admin/permissions/catalog");
+}
+
+/**
+ * Set a staff member's role, area grants and view-only cap. SUPERADMIN only.
+ * Omitted fields are left untouched.
+ */
+export async function updateStaff(
+  id: string,
+  input: { role?: "ADMIN" | "SUPERADMIN"; viewOnly?: boolean; permissions?: PermissionMap },
+): Promise<StaffMemberDto> {
+  const data = await request<{ staff: StaffMemberDto }>(`/admin/staff/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
   return data.staff;
 }
 
@@ -849,6 +1006,96 @@ export async function saveSiteContent(content: unknown): Promise<Record<string, 
     body: JSON.stringify({ content }),
   });
   return data.content;
+}
+
+/* ------------------------------------------------------ admin: integrations */
+
+export type SecretSource = "database" | "environment" | "unset";
+
+/**
+ * The outbound API credentials, as the console sees them. Secrets are
+ * write-only: the API reports `hasToken` and where the value came from, never
+ * the value itself.
+ */
+export interface IntegrationsDto {
+  email: {
+    enabled: boolean;
+    from: string;
+    replyTo: string;
+    hasSmtpUrl: boolean;
+    smtpUrlSource: SecretSource;
+    configured: boolean;
+  };
+  whatsapp: {
+    enabled: boolean;
+    phoneId: string;
+    hasToken: boolean;
+    tokenSource: SecretSource;
+    configured: boolean;
+  };
+  telegram: {
+    enabled: boolean;
+    hasBotToken: boolean;
+    botTokenSource: SecretSource;
+    configured: boolean;
+  };
+  /** False when the API has no SECRET_ENCRYPTION_KEY — secrets are plaintext. */
+  secretsEncrypted: boolean;
+}
+
+export interface AdminIntegrationsDto {
+  integrations: IntegrationsDto;
+  /** The payment gateway is an integration too — surfaced in the same tab. */
+  gateway: GatewaySettingsDto;
+}
+
+export async function fetchIntegrations(): Promise<AdminIntegrationsDto> {
+  return request<AdminIntegrationsDto>("/admin/integrations");
+}
+
+/**
+ * Save channel credentials. Secrets are write-only: pass a string to set, `null`
+ * to clear (env fallback resumes), or omit to leave untouched.
+ */
+export async function saveIntegrations(input: {
+  email?: { enabled?: boolean; from?: string; replyTo?: string; smtpUrl?: string | null };
+  whatsapp?: { enabled?: boolean; phoneId?: string; token?: string | null };
+  telegram?: { enabled?: boolean; botToken?: string | null };
+}): Promise<IntegrationsDto> {
+  const data = await request<{ integrations: IntegrationsDto }>("/admin/integrations", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return data.integrations;
+}
+
+/* ------------------------------------------------------ admin: social links */
+
+export interface SocialLinkDto {
+  id: string;
+  /** Stable key used to pick the icon — e.g. `x`, `instagram`, `telegram`. */
+  platform: string;
+  label: string;
+  url: string;
+  handle: string;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface SocialDto {
+  links: SocialLinkDto[];
+}
+
+export async function fetchSocialSettings(): Promise<SocialDto> {
+  return request<SocialDto>("/admin/social");
+}
+
+export async function saveSocialSettings(input: SocialDto): Promise<SocialDto> {
+  const data = await request<{ social: SocialDto }>("/admin/social", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return data.social;
 }
 
 /* ----------------------------------------------------- admin: broadcasts */

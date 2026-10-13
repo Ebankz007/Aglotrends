@@ -114,6 +114,37 @@ export function ActionButton({
   );
 }
 
+/** Checkbox row for a boolean setting. */
+export function Toggle({
+  label,
+  hint,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-night-2 px-4 py-3">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 accent-[color:var(--color-brand)]"
+      />
+      <span>
+        <span className="block text-sm font-bold text-soft">{label}</span>
+        {hint && <span className="mt-0.5 block text-xs text-mist">{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
 /** Labelled input row. Password fields get a show/hide eye toggle. */
 export function Field({
   label,
@@ -123,6 +154,10 @@ export function Field({
   placeholder,
   autoComplete,
   required,
+  inputMode,
+  maxLength,
+  autoFocus,
+  hint,
 }: {
   label: string;
   value: string;
@@ -131,6 +166,10 @@ export function Field({
   placeholder?: string;
   autoComplete?: string;
   required?: boolean;
+  inputMode?: "text" | "numeric" | "tel" | "email";
+  maxLength?: number;
+  autoFocus?: boolean;
+  hint?: string;
 }) {
   const [visible, setVisible] = useState(false);
   const isPassword = type === "password";
@@ -147,6 +186,9 @@ export function Field({
           placeholder={placeholder}
           autoComplete={autoComplete}
           required={required}
+          inputMode={inputMode}
+          maxLength={maxLength}
+          autoFocus={autoFocus}
           onChange={(e) => onChange(e.target.value)}
           className="w-full rounded-2xl border border-white/10 bg-night-2 px-4 py-3 text-[15px] text-soft outline-none transition focus:border-brand/50"
           style={isPassword ? { paddingRight: 44 } : undefined}
@@ -163,6 +205,7 @@ export function Field({
           </button>
         )}
       </span>
+      {hint && <span className="mt-1.5 block text-xs text-mist">{hint}</span>}
     </label>
   );
 }
@@ -240,12 +283,18 @@ export function Tr({ children }: { children: React.ReactNode }) {
 
 export function Td({
   children,
+  colSpan,
   className = "",
 }: {
   children: React.ReactNode;
+  colSpan?: number;
   className?: string;
 }) {
-  return <td className={`px-3 py-3 align-top ${className}`}>{children}</td>;
+  return (
+    <td colSpan={colSpan} className={`px-3 py-3 align-top ${className}`}>
+      {children}
+    </td>
+  );
 }
 
 /** Empty-state line for tables and lists. */

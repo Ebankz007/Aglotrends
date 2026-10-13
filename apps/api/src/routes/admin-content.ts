@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../lib/async.js';
 import { requireAuth, requireStaff } from '../lib/auth.js';
+import { requireAreaAccess } from '../lib/admin-access.js';
 import { audit } from '../services/audit.js';
 import {
   createResource,
@@ -29,7 +30,7 @@ import {
  * here too so the router is safe regardless of mount order.
  */
 export const adminContentRouter = Router();
-adminContentRouter.use(requireAuth, requireStaff);
+adminContentRouter.use(requireAuth, requireStaff, requireAreaAccess);
 
 /* ------------------------------------------------------------- education */
 

@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { errorHandler, notFoundHandler } from './lib/errors.js';
 import { authRouter } from './routes/auth.js';
+import { twoFactorRouter } from './routes/two-factor.js';
 import { meRouter } from './routes/me.js';
 import { networkRouter } from './routes/network.js';
 import { walletRouter } from './routes/wallet.js';
@@ -34,6 +35,7 @@ export function createApp(): express.Express {
   });
 
   app.use('/api/auth', authRouter);
+  app.use('/api/auth/2fa', twoFactorRouter);
   app.use('/api/me', meRouter);
   app.use('/api/network', networkRouter);
   app.use('/api/wallet', walletRouter);

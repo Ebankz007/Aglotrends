@@ -1,6 +1,9 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { resolveEmailIntegration, type ResolvedEmailIntegration } from '../services/settings.js';
+
+export type { ResolvedEmailIntegration };
 
 /**
  * Outbound email — hardened Mailgun/SMTP transport.
@@ -23,66 +26,90 @@ export interface EmailResult {
 }
 
 let transporter: Transporter | null = null;
+/** The URL the cached transporter was built from, so a console change rebuilds it. */
+let transporterUrl = '';
 
-/** False = the channel is off; the fan-out records SKIPPED, never FAILED. */
-export function emailConfigured(): boolean {
-  return config.SMTP_URL.trim().length > 0;
+/**
+ * Resolve the SMTP config from the console, falling back to the environment.
+ * The fan-out resolves this once per run and passes it down, rather than each
+ * recipient re-reading `app_config`.
+ */
+export async function emailConfig(): Promise<ResolvedEmailIntegration> {
+  return resolveEmailIntegration();
 }
 
-function getTransporter(): Transporter | null {
+/** False = the channel is off; the fan-out records SKIPPED, never FAILED. */
+export function emailConfigured(cfg: ResolvedEmailIntegration): boolean {
+  return cfg.enabled && cfg.smtpUrl.trim().length > 0;
+}
+
+function getTransporter(cfg: ResolvedEmailIntegration): Transporter | null {
   // The test suite NEVER sends real mail, whatever sits in .env — a suite that
   // hit the live relay on every run would be slow, flaky, and would email
   // fake addresses for real. Same rule as payment mock mode.
-  if (!emailConfigured() || config.NODE_ENV === 'test') return null;
-  if (!transporter) {
-    const url = new URL(config.SMTP_URL);
-    const secure = url.protocol === 'smtps:';
-    transporter = nodemailer.createTransport({
-      host: url.hostname,
-      port: url.port ? Number(url.port) : secure ? 465 : 587,
-      secure,
-      auth: url.username
-        ? { user: decodeURIComponent(url.username), pass: decodeURIComponent(url.password) }
-        : undefined,
-      // A dead host must fail in seconds, not hang the request for minutes.
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 15_000,
-    });
-    // The pool emits async 'error' events (dropped connections) that would
-    // otherwise crash the process as unhandled. Log them; sendMail/verify
-    // still report failures through their own rejections.
-    transporter.on('error', (err) => {
-      logger.error({ err: err instanceof Error ? err.message : String(err) }, 'SMTP pool error');
-    });
+  if (!emailConfigured(cfg) || config.NODE_ENV === 'test') return null;
+  // Rebuild when an operator changes the SMTP URL in the console.
+  if (transporter && transporterUrl === cfg.smtpUrl) return transporter;
+
+  let url: URL;
+  try {
+    url = new URL(cfg.smtpUrl);
+  } catch {
+    throw new Error('SMTP URL is malformed — expected smtps://user:pass@host:465');
   }
+  const secure = url.protocol === 'smtps:';
+  transporter = nodemailer.createTransport({
+    host: url.hostname,
+    port: url.port ? Number(url.port) : secure ? 465 : 587,
+    secure,
+    auth: url.username
+      ? { user: decodeURIComponent(url.username), pass: decodeURIComponent(url.password) }
+      : undefined,
+    // A dead host must fail in seconds, not hang the request for minutes.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
+  });
+  // The pool emits async 'error' events (dropped connections) that would
+  // otherwise crash the process as unhandled. Log them; sendMail/verify
+  // still report failures through their own rejections.
+  transporter.on('error', (err) => {
+    logger.error({ err: err instanceof Error ? err.message : String(err) }, 'SMTP pool error');
+  });
+  transporterUrl = cfg.smtpUrl;
   return transporter;
 }
 
 /**
- * Send an email. Without SMTP_URL this is the dev transport: the message is
- * logged and the caller gets the rendered body back, so the flow is testable
- * end-to-end with no mail server. In production a missing transport is a hard
- * error — a platform that silently drops mail is worse than one that won't boot.
+ * Send an email. With no SMTP transport configured this is the dev transport:
+ * the message is logged and the caller gets the rendered body back, so the flow
+ * is testable end-to-end with no mail server. In production a missing transport
+ * is a hard error — a platform that silently drops mail is worse than one that
+ * won't boot.
+ *
+ * Pass `cfg` when fanning out to many recipients, so the settings read happens
+ * once rather than per address.
  */
 export async function sendEmail(
   to: string,
   subject: string,
   text: string,
   html?: string,
+  cfg?: ResolvedEmailIntegration,
 ): Promise<EmailResult> {
-  const t = getTransporter();
+  const resolved = cfg ?? (await emailConfig());
+  const t = getTransporter(resolved);
   if (!t) {
     logger.info({ to, subject }, `[dev-mail] ${text}`);
     if (config.NODE_ENV === 'production') {
-      throw new Error('SMTP_URL is not configured — cannot deliver email in production');
+      throw new Error('SMTP is not configured — cannot deliver email in production');
     }
     return { dev: true, body: html ?? text };
   }
 
   const mail = {
-    from: config.SMTP_FROM,
-    ...(config.SMTP_REPLY_TO ? { replyTo: config.SMTP_REPLY_TO } : {}),
+    from: resolved.from,
+    ...(resolved.replyTo ? { replyTo: resolved.replyTo } : {}),
     to,
     subject,
     text,
@@ -142,10 +169,10 @@ function sleep(ms: number): Promise<void> {
  * so a bad password or unreachable host is a loud crash at deploy time rather
  * than a silent black hole discovered by the first locked-out member.
  *
- * Returns true when there is nothing to check (no SMTP_URL configured).
+ * Returns true when there is nothing to check (no SMTP configured).
  */
 export async function verifySmtpConnection(): Promise<boolean> {
-  const t = getTransporter();
+  const t = getTransporter(await emailConfig());
   if (!t) return true;
   await t.verify();
   logger.info('SMTP connection verified');

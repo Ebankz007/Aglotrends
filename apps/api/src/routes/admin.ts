@@ -5,6 +5,13 @@ import { db, schema } from '../db.js';
 import { asyncHandler } from '../lib/async.js';
 import { ApiError } from '../lib/errors.js';
 import { hashPassword, requireAuth, requireStaff, requireSuperAdmin } from '../lib/auth.js';
+import { requireAreaAccess } from '../lib/admin-access.js';
+import {
+  ADMIN_AREAS,
+  PERMISSION_LEVELS,
+  describePermissions,
+  normalizePermissionMap,
+} from '../lib/permissions.js';
 import { audit } from '../services/audit.js';
 import { createSignal, publishSignal } from '../services/signals.js';
 import { recordProfitSettlement } from '../services/settlement.js';
@@ -14,11 +21,15 @@ import {
   gatewaySettingsView,
   getPlatformSettings,
   getSiteContent,
+  getSocialSettingsAdmin,
+  integrationsView,
   platformFeeSettingsView,
   saveGatewaySettings,
+  saveIntegrations,
   savePlatformFeeSettings,
   savePlatformSettings,
   saveSiteContent,
+  saveSocialSettings,
 } from '../services/settings.js';
 import { poolBalances } from '../services/pools.js';
 import { approvePayout, payPayout, rejectPayout } from '../services/payouts.js';
@@ -35,7 +46,11 @@ export const adminRouter = Router();
 // requireAuth must run first: requireStaff only checks req.user, it does not
 // verify the token. Without this, req.user is always undefined and every
 // admin request 401s.
-adminRouter.use(requireAuth, requireStaff);
+//
+// requireAreaAccess then maps the path to an admin area and enforces the
+// caller's grant (GET -> VIEW, mutations -> MANAGE). It fails closed, so a
+// route with no entry in the policy table is denied rather than exposed.
+adminRouter.use(requireAuth, requireStaff, requireAreaAccess);
 
 /* --------------------------------------------------------------- members */
 
@@ -471,9 +486,34 @@ const staffColumns = {
   fullName: schema.users.fullName,
   role: schema.users.role,
   status: schema.users.status,
+  permissions: schema.users.permissions,
+  viewOnly: schema.users.viewOnly,
+  twoFactorEnabled: schema.users.twoFactorEnabled,
+  twoFactorEnrolledAt: schema.users.twoFactorEnrolledAt,
   createdAt: schema.users.createdAt,
   lastLoginAt: schema.users.lastLoginAt,
 };
+
+type StaffRow = {
+  permissions: Record<string, string> | null;
+  [key: string]: unknown;
+};
+
+/** Normalises the stored permission map so the console always sees a clean shape. */
+function staffView<T extends StaffRow>(row: T) {
+  return { ...row, permissions: normalizePermissionMap(row.permissions) };
+}
+
+/**
+ * The area catalog, so the console renders the permission matrix from the
+ * server's definition rather than a hard-coded copy that can drift.
+ */
+adminRouter.get(
+  '/permissions/catalog',
+  asyncHandler(async (_req, res) => {
+    res.json({ areas: ADMIN_AREAS, levels: PERMISSION_LEVELS });
+  }),
+);
 
 adminRouter.get(
   '/staff',
@@ -483,7 +523,7 @@ adminRouter.get(
       .from(schema.users)
       .where(inArray(schema.users.role, ['ADMIN', 'SUPERADMIN']))
       .orderBy(desc(schema.users.createdAt));
-    res.json({ staff: rows });
+    res.json({ staff: rows.map(staffView) });
   }),
 );
 
@@ -528,7 +568,78 @@ adminRouter.post(
     if (!created) throw new Error('staff create failed');
 
     await audit(req.user!.id, 'staff.create', 'user', created.id, { email, role: body.role });
-    res.status(201).json({ staff: created });
+    res.status(201).json({ staff: staffView(created) });
+  }),
+);
+
+const updateStaffSchema = z.object({
+  role: z.enum(['ADMIN', 'SUPERADMIN']).optional(),
+  viewOnly: z.boolean().optional(),
+  permissions: z.record(z.enum(['NONE', 'VIEW', 'MANAGE'])).optional(),
+});
+
+/**
+ * Set a staff member's role, area grants, and view-only cap. SUPERADMIN-only.
+ *
+ * Two guards protect the platform from locking itself out, mirroring the ones
+ * on member updates: a superadmin cannot demote themselves, and the last
+ * remaining active superadmin cannot be demoted by anyone.
+ */
+adminRouter.patch(
+  '/staff/:id',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = updateStaffSchema.parse(req.body);
+    const targetId = req.params.id!;
+
+    const [target] = await db
+      .select({ id: schema.users.id, role: schema.users.role, status: schema.users.status })
+      .from(schema.users)
+      .where(eq(schema.users.id, targetId))
+      .limit(1);
+    if (!target) throw ApiError.notFound('Staff account not found');
+    if (target.role === 'MEMBER') {
+      throw ApiError.badRequest('That account is not a staff member', 'NOT_STAFF');
+    }
+
+    const demoting = body.role !== undefined && body.role !== 'SUPERADMIN';
+    if (demoting && targetId === req.user!.id) {
+      throw ApiError.forbidden('You cannot change your own role');
+    }
+    if (demoting && target.role === 'SUPERADMIN' && target.status === 'ACTIVE') {
+      const [counts] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.users)
+        .where(and(eq(schema.users.role, 'SUPERADMIN'), eq(schema.users.status, 'ACTIVE')));
+      if ((counts?.n ?? 0) <= 1) {
+        throw ApiError.conflict(
+          'Cannot demote the last active SUPERADMIN',
+          'LAST_SUPERADMIN',
+        );
+      }
+    }
+
+    const permissions = body.permissions ? normalizePermissionMap(body.permissions) : undefined;
+
+    const [updated] = await db
+      .update(schema.users)
+      .set({
+        ...(body.role ? { role: body.role } : {}),
+        ...(body.viewOnly !== undefined ? { viewOnly: body.viewOnly } : {}),
+        ...(permissions ? { permissions } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.users.id, targetId))
+      .returning(staffColumns);
+    if (!updated) throw ApiError.notFound('Staff account not found');
+
+    await audit(req.user!.id, 'staff.update', 'user', targetId, {
+      role: body.role,
+      viewOnly: body.viewOnly,
+      permissions: permissions ? describePermissions(permissions) : undefined,
+    });
+
+    res.json({ staff: staffView(updated) });
   }),
 );
 
@@ -619,6 +730,107 @@ adminRouter.put(
       walletConfigured: fees.walletConfigured,
     });
     res.json({ fees });
+  }),
+);
+
+/* ---------------------------------------------------------- integrations */
+
+/**
+ * Every outbound API credential in one place: SMTP email, WhatsApp Cloud API,
+ * and the Telegram bot. SUPERADMIN-only — these are the keys that let the
+ * platform speak as itself to the whole member base.
+ *
+ * Secrets are write-only. The read returns `hasToken` and where the value came
+ * from, never the value, so the console can confirm a key is set without ever
+ * being able to leak it.
+ */
+adminRouter.get(
+  '/integrations',
+  requireSuperAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json({
+      integrations: await integrationsView(),
+      gateway: await gatewaySettingsView(),
+    });
+  }),
+);
+
+const integrationsSchema = z.object({
+  email: z
+    .object({
+      enabled: z.boolean().optional(),
+      from: z.string().trim().max(200).optional(),
+      replyTo: z.string().trim().max(200).optional(),
+      // null clears the stored override (env fallback takes over); undefined leaves it.
+      smtpUrl: z.string().trim().max(1000).nullable().optional(),
+    })
+    .optional(),
+  whatsapp: z
+    .object({
+      enabled: z.boolean().optional(),
+      phoneId: z.string().trim().max(60).optional(),
+      token: z.string().trim().max(1000).nullable().optional(),
+    })
+    .optional(),
+  telegram: z
+    .object({
+      enabled: z.boolean().optional(),
+      botToken: z.string().trim().max(500).nullable().optional(),
+    })
+    .optional(),
+});
+
+adminRouter.put(
+  '/integrations',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = integrationsSchema.parse(req.body);
+    const integrations = await saveIntegrations(body);
+    // Record WHICH channels changed — never a secret value.
+    await audit(req.user!.id, 'settings.integrations.update', 'system', undefined, {
+      channels: Object.keys(body),
+    });
+    res.json({ integrations });
+  }),
+);
+
+/* ------------------------------------------------------------ social links */
+
+/**
+ * The operator's social handles, rendered in the marketing footer. CONTENT
+ * area, not SUPERADMIN: this is public copy, and whoever owns the copy should
+ * own the links.
+ */
+adminRouter.get(
+  '/social',
+  asyncHandler(async (_req, res) => {
+    res.json({ social: await getSocialSettingsAdmin() });
+  }),
+);
+
+const socialLinkSchema = z.object({
+  id: z.string().trim().min(1).max(64),
+  platform: z.string().trim().min(1).max(40),
+  label: z.string().trim().min(1).max(80),
+  url: z.string().trim().url().max(2000),
+  handle: z.string().trim().max(80).default(''),
+  enabled: z.boolean(),
+  sortOrder: z.number().int().min(0).max(9999),
+});
+
+const socialSchema = z.object({
+  links: z.array(socialLinkSchema).max(30),
+});
+
+adminRouter.put(
+  '/social',
+  asyncHandler(async (req, res) => {
+    const body = socialSchema.parse(req.body);
+    const social = await saveSocialSettings(body);
+    await audit(req.user!.id, 'settings.social.update', 'system', undefined, {
+      links: social.links.map((l) => `${l.platform}:${l.url}`),
+    });
+    res.json({ social });
   }),
 );
 

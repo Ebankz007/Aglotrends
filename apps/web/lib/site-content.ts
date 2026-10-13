@@ -7,8 +7,10 @@
  * unreachable, and the copy exists in exactly one place.
  *
  * Compliance-critical sections (what Aglotrends is not, custody, risk
- * disclosures, the footer) are deliberately NOT part of this model. They are
- * locked in code so a marketing edit can never quietly remove them.
+ * disclosures, and the footer's risk paragraph) are deliberately NOT part of
+ * this model. They are locked in code so a marketing edit can never quietly
+ * remove them. The footer's *tagline*, *status badge*, and *contact details* are
+ * ordinary copy and ARE editable — see `footer` and `contact` below.
  */
 
 export interface SiteContent {
@@ -24,6 +26,15 @@ export interface SiteContent {
   steps: Array<{ title: string; body: string }>;
   faqs: Array<{ q: string; a: string }>;
   finalCta: { title: string; body: string; note: string };
+  footer: {
+    tagline: string;
+    badge: string;
+  };
+  contact: {
+    email: string;
+    phone: string;
+    address: string;
+  };
 }
 
 export const DEFAULT_SITE_CONTENT: SiteContent = {
@@ -111,12 +122,27 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     body: "Review how Aglotrends works, understand the risks, and complete each onboarding step at your own pace.",
     note: "Only commit funds you can afford to place at risk.",
   },
+  footer: {
+    tagline:
+      "Copy trading, signals, a referral network, and a trader community — built around personal broker custody and visible controls.",
+    badge: "Platform live — registration open",
+  },
+  contact: {
+    email: "support@aglotrends.com",
+    phone: "",
+    address: "",
+  },
 };
 
 /* ------------------------------------------------------------------ merge */
 
 function asString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim().length > 0 ? value : fallback;
+}
+
+/** Like `asString`, but an empty string is a legitimate value (clears a field). */
+function asOptionalString(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value.trim() : fallback;
 }
 
 function asArray<T>(
@@ -146,6 +172,8 @@ export function mergeSiteContent(partial: unknown): SiteContent {
   const p = asRecord(partial);
   const hero = asRecord(p.hero);
   const finalCta = asRecord(p.finalCta);
+  const footer = asRecord(p.footer);
+  const contact = asRecord(p.contact);
   const d = DEFAULT_SITE_CONTENT;
 
   return {
@@ -176,6 +204,16 @@ export function mergeSiteContent(partial: unknown): SiteContent {
       title: asString(finalCta.title, d.finalCta.title),
       body: asString(finalCta.body, d.finalCta.body),
       note: asString(finalCta.note, d.finalCta.note),
+    },
+    footer: {
+      tagline: asString(footer.tagline, d.footer.tagline),
+      badge: asString(footer.badge, d.footer.badge),
+    },
+    contact: {
+      email: asString(contact.email, d.contact.email),
+      // Phone and address are genuinely optional — clearing them is meaningful.
+      phone: asOptionalString(contact.phone, d.contact.phone),
+      address: asOptionalString(contact.address, d.contact.address),
     },
   };
 }

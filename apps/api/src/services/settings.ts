@@ -309,3 +309,267 @@ export async function savePlatformSettings(input: {
   }
   return getPlatformSettings();
 }
+
+/* ---------------------------------------------------------- integrations */
+
+export const INTEGRATIONS_KEY = 'integrations';
+
+/**
+ * Third-party API credentials, editable from the console.
+ *
+ * Same contract as the payment gateway, deliberately: secrets are encrypted at
+ * rest and WRITE-ONLY — a read reports `hasToken`, never the value. Environment
+ * variables stay the FALLBACK, so a deployment that never opens this screen
+ * behaves exactly as it did before the screen existed.
+ *
+ * `enabled` is a channel master switch, separate from "configured". Turning a
+ * channel off makes the fan-out record SKIPPED, never FAILED — the same
+ * distinction the delivery layer already draws for an unconfigured channel.
+ */
+export interface EmailIntegrationSettings {
+  enabled: boolean;
+  /** smtps://user:pass@host:465 — encrypted at rest. */
+  smtpUrl: string;
+  from: string;
+  replyTo: string;
+}
+
+export interface WhatsAppIntegrationSettings {
+  enabled: boolean;
+  /** Cloud API permanent token — encrypted at rest. */
+  token: string;
+  phoneId: string;
+}
+
+export interface TelegramIntegrationSettings {
+  enabled: boolean;
+  /** Bot token — encrypted at rest. */
+  botToken: string;
+}
+
+export interface IntegrationsSettings {
+  email: EmailIntegrationSettings;
+  whatsapp: WhatsAppIntegrationSettings;
+  telegram: TelegramIntegrationSettings;
+}
+
+const INTEGRATION_DEFAULTS: IntegrationsSettings = {
+  email: { enabled: true, smtpUrl: '', from: '', replyTo: '' },
+  whatsapp: { enabled: true, token: '', phoneId: '' },
+  telegram: { enabled: true, botToken: '' },
+};
+
+export type SecretSource = 'database' | 'environment' | 'unset';
+
+/** Merge stored overrides over the defaults, without touching the secrets. */
+async function storedIntegrations(): Promise<IntegrationsSettings> {
+  const stored = (await getSetting<Partial<IntegrationsSettings>>(INTEGRATIONS_KEY)) ?? {};
+  return {
+    email: { ...INTEGRATION_DEFAULTS.email, ...stored.email },
+    whatsapp: { ...INTEGRATION_DEFAULTS.whatsapp, ...stored.whatsapp },
+    telegram: { ...INTEGRATION_DEFAULTS.telegram, ...stored.telegram },
+  };
+}
+
+/** Decrypt a stored secret, falling back to the environment value. */
+function reveal(stored: string, fallback: string): string {
+  return stored ? decryptSecret(stored) : fallback;
+}
+
+/* --- resolved forms, consumed by the delivery layer --- */
+
+export interface ResolvedEmailIntegration {
+  enabled: boolean;
+  smtpUrl: string;
+  from: string;
+  replyTo: string;
+}
+
+export async function resolveEmailIntegration(): Promise<ResolvedEmailIntegration> {
+  const s = await storedIntegrations();
+  return {
+    enabled: s.email.enabled,
+    smtpUrl: reveal(s.email.smtpUrl, config.SMTP_URL),
+    from: s.email.from || config.SMTP_FROM,
+    replyTo: s.email.replyTo || config.SMTP_REPLY_TO,
+  };
+}
+
+export interface ResolvedWhatsAppIntegration {
+  enabled: boolean;
+  token: string;
+  phoneId: string;
+}
+
+export async function resolveWhatsAppIntegration(): Promise<ResolvedWhatsAppIntegration> {
+  const s = await storedIntegrations();
+  return {
+    enabled: s.whatsapp.enabled,
+    token: reveal(s.whatsapp.token, config.WHATSAPP_TOKEN),
+    phoneId: s.whatsapp.phoneId || config.WHATSAPP_PHONE_ID,
+  };
+}
+
+export interface ResolvedTelegramIntegration {
+  enabled: boolean;
+  botToken: string;
+}
+
+export async function resolveTelegramIntegration(): Promise<ResolvedTelegramIntegration> {
+  const s = await storedIntegrations();
+  return {
+    enabled: s.telegram.enabled,
+    botToken: reveal(s.telegram.botToken, config.TELEGRAM_BOT_TOKEN),
+  };
+}
+
+/* --- console read model (never contains a secret) --- */
+
+export interface IntegrationsView {
+  email: {
+    enabled: boolean;
+    from: string;
+    replyTo: string;
+    hasSmtpUrl: boolean;
+    smtpUrlSource: SecretSource;
+    configured: boolean;
+  };
+  whatsapp: {
+    enabled: boolean;
+    phoneId: string;
+    hasToken: boolean;
+    tokenSource: SecretSource;
+    configured: boolean;
+  };
+  telegram: {
+    enabled: boolean;
+    hasBotToken: boolean;
+    botTokenSource: SecretSource;
+    configured: boolean;
+  };
+  /** False when no SECRET_ENCRYPTION_KEY is configured — secrets are plaintext. */
+  secretsEncrypted: boolean;
+}
+
+export async function integrationsView(): Promise<IntegrationsView> {
+  const s = await storedIntegrations();
+  // Deliberately does NOT decrypt: the view only needs to know *whether* a
+  // secret is set, so a rotated or missing key cannot break the console an
+  // operator needs in order to fix it.
+  const hasSmtpUrl = Boolean(s.email.smtpUrl || config.SMTP_URL);
+  const hasToken = Boolean(s.whatsapp.token || config.WHATSAPP_TOKEN);
+  const hasBotToken = Boolean(s.telegram.botToken || config.TELEGRAM_BOT_TOKEN);
+  const phoneId = s.whatsapp.phoneId || config.WHATSAPP_PHONE_ID;
+
+  return {
+    email: {
+      enabled: s.email.enabled,
+      from: s.email.from || config.SMTP_FROM,
+      replyTo: s.email.replyTo || config.SMTP_REPLY_TO,
+      hasSmtpUrl,
+      smtpUrlSource: sourceOf(s.email.smtpUrl, config.SMTP_URL),
+      configured: s.email.enabled && hasSmtpUrl,
+    },
+    whatsapp: {
+      enabled: s.whatsapp.enabled,
+      phoneId,
+      hasToken,
+      tokenSource: sourceOf(s.whatsapp.token, config.WHATSAPP_TOKEN),
+      configured: s.whatsapp.enabled && hasToken && phoneId.trim().length > 0,
+    },
+    telegram: {
+      enabled: s.telegram.enabled,
+      hasBotToken,
+      botTokenSource: sourceOf(s.telegram.botToken, config.TELEGRAM_BOT_TOKEN),
+      configured: s.telegram.enabled && hasBotToken,
+    },
+    secretsEncrypted: encryptionAvailable(),
+  };
+}
+
+export interface IntegrationsInput {
+  email?: { enabled?: boolean; from?: string; replyTo?: string; smtpUrl?: string | null };
+  whatsapp?: { enabled?: boolean; phoneId?: string; token?: string | null };
+  telegram?: { enabled?: boolean; botToken?: string | null };
+}
+
+/** Opportunistically encrypt a legacy plaintext value on the next save. */
+function upgrade(value: string): string {
+  return value && !isEncrypted(value) ? encryptSecret(value) : value;
+}
+
+export async function saveIntegrations(input: IntegrationsInput): Promise<IntegrationsView> {
+  const next = await storedIntegrations();
+
+  if (input.email) {
+    if (input.email.enabled !== undefined) next.email.enabled = input.email.enabled;
+    if (input.email.from !== undefined) next.email.from = input.email.from.trim();
+    if (input.email.replyTo !== undefined) next.email.replyTo = input.email.replyTo.trim();
+    if (input.email.smtpUrl !== undefined) next.email.smtpUrl = seal(input.email.smtpUrl);
+  }
+  if (input.whatsapp) {
+    if (input.whatsapp.enabled !== undefined) next.whatsapp.enabled = input.whatsapp.enabled;
+    if (input.whatsapp.phoneId !== undefined) next.whatsapp.phoneId = input.whatsapp.phoneId.trim();
+    if (input.whatsapp.token !== undefined) next.whatsapp.token = seal(input.whatsapp.token);
+  }
+  if (input.telegram) {
+    if (input.telegram.enabled !== undefined) next.telegram.enabled = input.telegram.enabled;
+    if (input.telegram.botToken !== undefined) next.telegram.botToken = seal(input.telegram.botToken);
+  }
+
+  if (encryptionAvailable()) {
+    next.email.smtpUrl = upgrade(next.email.smtpUrl);
+    next.whatsapp.token = upgrade(next.whatsapp.token);
+    next.telegram.botToken = upgrade(next.telegram.botToken);
+  }
+
+  await setSetting(INTEGRATIONS_KEY, next);
+  return integrationsView();
+}
+
+/* ------------------------------------------------------------ social links */
+
+export const SOCIAL_KEY = 'site.social';
+
+export interface SocialLink {
+  id: string;
+  /** Stable key used to pick the icon — e.g. `x`, `instagram`, `telegram`. */
+  platform: string;
+  label: string;
+  url: string;
+  /** Display handle, e.g. `@aglotrends`. Optional. */
+  handle: string;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface SocialSettings {
+  links: SocialLink[];
+}
+
+/** Public read: ENABLED links only, in display order. */
+export async function getSocialSettings(): Promise<SocialSettings> {
+  const all = await getSocialSettingsAdmin();
+  return { links: all.links.filter((l) => l.enabled) };
+}
+
+/** Console read: every link, including hidden ones. */
+export async function getSocialSettingsAdmin(): Promise<SocialSettings> {
+  const stored = await getSetting<Partial<SocialSettings>>(SOCIAL_KEY);
+  const links = Array.isArray(stored?.links) ? stored!.links! : [];
+  return { links: [...links].sort((a, b) => a.sortOrder - b.sortOrder) };
+}
+
+export async function saveSocialSettings(input: SocialSettings): Promise<SocialSettings> {
+  const links = input.links.map((l, i) => ({
+    id: l.id,
+    platform: l.platform.trim(),
+    label: l.label.trim(),
+    url: l.url.trim(),
+    handle: l.handle.trim(),
+    enabled: l.enabled,
+    sortOrder: Number.isFinite(l.sortOrder) ? l.sortOrder : i,
+  }));
+  await setSetting(SOCIAL_KEY, { links });
+  return getSocialSettingsAdmin();
+}

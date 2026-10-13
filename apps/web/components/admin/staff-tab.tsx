@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   ActionButton,
   Badge,
@@ -18,8 +18,15 @@ import {
   createStaff,
   fetchAdminStaff,
   fetchMe,
+  fetchPermissionCatalog,
   updateAdminMember,
+  updateStaff,
   type AccountStatus,
+  type AdminArea,
+  type PermissionCatalogDto,
+  type PermissionLevel,
+  type PermissionMap,
+  type StaffMemberDto,
   type UserRole,
 } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
@@ -36,14 +43,137 @@ function statusTone(status: AccountStatus): "ok" | "warn" | "danger" {
 }
 
 /**
- * Staff management — SUPERADMIN only. Create admins, change their role, and
- * suspend or reinstate them. The API enforces every one of these rules; this
- * UI simply refuses to offer a control that would 403.
+ * Per-area access editor. Renders from the server's catalog so the areas and
+ * levels can never drift from what the API enforces.
+ */
+function PermissionEditor({
+  staff,
+  catalog,
+  onDone,
+}: {
+  staff: StaffMemberDto;
+  catalog: PermissionCatalogDto;
+  onDone: () => void;
+}) {
+  const [perms, setPerms] = useState<PermissionMap>({ ...staff.permissions });
+  const [viewOnly, setViewOnly] = useState(staff.viewOnly);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      // Drop NONE entries so the stored map stays a list of grants.
+      const cleaned: PermissionMap = {};
+      for (const [area, level] of Object.entries(perms)) {
+        if (level && level !== "NONE") cleaned[area as AdminArea] = level;
+      }
+      await updateStaff(staff.id, { permissions: cleaned, viewOnly });
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save permissions");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (staff.role === "SUPERADMIN") {
+    return (
+      <div className="flex flex-col gap-3">
+        <Note tone="info">
+          {staff.fullName} is a SUPERADMIN and holds every area by role. Demote them to ADMIN first
+          to restrict access.
+        </Note>
+        <div>
+          <ActionButton tone="quiet" onClick={onDone}>
+            Close
+          </ActionButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-night-2 p-3">
+        <input
+          type="checkbox"
+          checked={viewOnly}
+          onChange={(e) => setViewOnly(e.target.checked)}
+          className="mt-0.5 h-4 w-4 accent-brand"
+        />
+        <span>
+          <span className="block text-sm font-bold text-soft">View only</span>
+          <span className="block text-xs text-mist">
+            Caps every granted area at VIEW. The cap never grants access — it only removes it.
+          </span>
+        </span>
+      </label>
+
+      <div className="flex flex-col gap-2">
+        {catalog.areas.map((area) => {
+          const current = perms[area.id] ?? "NONE";
+          return (
+            <div
+              key={area.id}
+              className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-night-2 p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-soft">{area.label}</p>
+                <p className="text-xs text-mist">{area.description}</p>
+              </div>
+              <div className="flex shrink-0 gap-1 rounded-xl border border-white/10 bg-night p-1">
+                {catalog.levels.map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => setPerms((prev) => ({ ...prev, [area.id]: level }))}
+                    aria-pressed={perms[area.id] === level}
+                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${
+                      perms[area.id] === level
+                        ? level === "MANAGE"
+                          ? "bg-emerald-400/20 text-emerald-300"
+                          : level === "VIEW"
+                            ? "bg-brand/25 text-brand-2"
+                            : "bg-white/10 text-soft"
+                        : "text-mist hover:text-soft"
+                    }`}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {error && <Note tone="error">{error}</Note>}
+
+      <div className="flex gap-2">
+        <ActionButton onClick={save} disabled={busy}>
+          {busy ? "Saving…" : "Save access"}
+        </ActionButton>
+        <ActionButton tone="quiet" onClick={onDone} disabled={busy}>
+          Cancel
+        </ActionButton>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Staff management — SUPERADMIN only. Create admins, change their role, suspend
+ * or reinstate them, and grant per-area access. The API enforces every one of
+ * these rules; this UI simply refuses to offer a control that would 403.
  */
 export function StaffTab() {
   const { data, error, loading, reload } = useAsync(fetchAdminStaff);
   const { data: me, loading: meLoading } = useAsync(fetchMe);
+  const { data: catalog } = useAsync(fetchPermissionCatalog);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
@@ -96,7 +226,7 @@ export function StaffTab() {
     );
   }
 
-  if (!isSuperAdmin) {
+  if (!me || !isSuperAdmin) {
     return (
       <Panel title="Staff">
         <Note tone="info">
@@ -154,6 +284,10 @@ export function StaffTab() {
             </ActionButton>
           </div>
         </form>
+        <p className="mt-3 text-xs text-mist">
+          New staff start with no area access. Grant areas with <strong>Manage</strong>, then have
+          them enrol two-factor — they cannot open the console until they do.
+        </p>
         {createdNote && (
           <div className="mt-3">
             <Note tone="ok">{createdNote}</Note>
@@ -171,47 +305,82 @@ export function StaffTab() {
         {loading ? (
           <Empty>Loading…</Empty>
         ) : data && data.length > 0 ? (
-          <Table columns={["Member", "Role", "Status", "Last login", "Added"]}>
+          <Table columns={["Member", "Role", "Status", "2FA", "Last login", "Added", "Access"]}>
             {data.map((s) => (
-              <Tr key={s.id}>
-                <Td>
-                  <p className="font-semibold">{s.fullName}</p>
-                  <p className="text-xs text-mist">{s.email}</p>
-                </Td>
-                <Td>
-                  <select
-                    className={selectClass}
-                    value={s.role}
-                    disabled={busyId === s.id || me?.id === s.id}
-                    onChange={(e) => void patch(s.id, { role: e.target.value as UserRole })}
-                  >
-                    <option value="ADMIN">ADMIN</option>
-                    <option value="SUPERADMIN">SUPERADMIN</option>
-                  </select>
-                  <div className="mt-1">
-                    <Badge tone={roleTone(s.role)}>{s.role}</Badge>
-                  </div>
-                </Td>
-                <Td>
-                  <select
-                    className={selectClass}
-                    value={s.status}
-                    disabled={busyId === s.id || me?.id === s.id}
-                    onChange={(e) => void patch(s.id, { status: e.target.value as AccountStatus })}
-                  >
-                    <option value="PENDING">PENDING</option>
-                    <option value="ACTIVE">ACTIVE</option>
-                    <option value="SUSPENDED">SUSPENDED</option>
-                  </select>
-                  <div className="mt-1">
-                    <Badge tone={statusTone(s.status)}>{s.status}</Badge>
-                  </div>
-                </Td>
-                <Td className="whitespace-nowrap text-xs text-mist">
-                  {s.lastLoginAt ? formatDateTime(s.lastLoginAt) : "Never"}
-                </Td>
-                <Td className="whitespace-nowrap text-xs text-mist">{formatDate(s.createdAt)}</Td>
-              </Tr>
+              <Fragment key={s.id}>
+                <Tr>
+                  <Td>
+                    <p className="font-semibold">{s.fullName}</p>
+                    <p className="text-xs text-mist">{s.email}</p>
+                  </Td>
+                  <Td>
+                    <select
+                      className={selectClass}
+                      value={s.role}
+                      onChange={(e) => patch(s.id, { role: e.target.value as UserRole })}
+                      disabled={busyId === s.id || s.id === me.id}
+                    >
+                      <option value="ADMIN">ADMIN</option>
+                      <option value="SUPERADMIN">SUPERADMIN</option>
+                    </select>
+                    <div className="mt-1">
+                      <Badge tone={roleTone(s.role)}>{s.role}</Badge>
+                    </div>
+                  </Td>
+                  <Td>
+                    <select
+                      className={selectClass}
+                      value={s.status}
+                      onChange={(e) => patch(s.id, { status: e.target.value as AccountStatus })}
+                      disabled={busyId === s.id || s.id === me.id}
+                    >
+                      <option value="PENDING">PENDING</option>
+                      <option value="ACTIVE">ACTIVE</option>
+                      <option value="SUSPENDED">SUSPENDED</option>
+                    </select>
+                    <div className="mt-1">
+                      <Badge tone={statusTone(s.status)}>{s.status}</Badge>
+                    </div>
+                  </Td>
+                  <Td>
+                    <Badge tone={s.twoFactorEnabled ? "ok" : "danger"}>
+                      {s.twoFactorEnabled ? "Enabled" : "Not set"}
+                    </Badge>
+                    {s.viewOnly && (
+                      <div className="mt-1">
+                        <Badge tone="warn">View only</Badge>
+                      </div>
+                    )}
+                  </Td>
+                  <Td className="whitespace-nowrap text-xs text-mist">
+                    {s.lastLoginAt ? formatDateTime(s.lastLoginAt) : "Never"}
+                  </Td>
+                  <Td className="whitespace-nowrap text-xs text-mist">{formatDate(s.createdAt)}</Td>
+                  <Td>
+                    <ActionButton
+                      tone="quiet"
+                      className="!min-h-0 !px-3 !py-1.5 !text-xs"
+                      onClick={() => setEditingId(editingId === s.id ? null : s.id)}
+                    >
+                      {editingId === s.id ? "Close" : "Manage"}
+                    </ActionButton>
+                  </Td>
+                </Tr>
+                {editingId === s.id && catalog && (
+                  <Tr>
+                    <Td colSpan={7} className="bg-night-2/60">
+                      <PermissionEditor
+                        staff={s}
+                        catalog={catalog}
+                        onDone={() => {
+                          setEditingId(null);
+                          reload();
+                        }}
+                      />
+                    </Td>
+                  </Tr>
+                )}
+              </Fragment>
             ))}
           </Table>
         ) : (

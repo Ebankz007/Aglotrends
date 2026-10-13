@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   allocateRegistrationFee,
   FEE_SPLIT_TOTAL,
+  PLATFORM_FEE_CENTS,
   PROFIT_SPLIT_TOTAL,
   REGISTRATION_FEE_CENTS,
+  REGISTRATION_GROSS_CENTS,
+  splitPlatformFee,
 } from '../src/index.js';
 
 describe('§2 registration fee allocation', () => {
@@ -54,5 +57,47 @@ describe('§12 reconciliation invariants', () => {
 
   it('the three profit buckets sum to exactly 100%', () => {
     expect(PROFIT_SPLIT_TOTAL).toBe(1);
+  });
+});
+
+describe('§1 (amended) platform transaction fee', () => {
+  it('pins the $3.00 platform fee and the $23.00 registration gross', () => {
+    expect(PLATFORM_FEE_CENTS).toBe(300);
+    expect(REGISTRATION_GROSS_CENTS).toBe(2300);
+    expect(REGISTRATION_GROSS_CENTS).toBe(REGISTRATION_FEE_CENTS + PLATFORM_FEE_CENTS);
+  });
+
+  it('carves the fee out of a gross charge and reconciles net + fee === gross', () => {
+    const { netCents, feeCents } = splitPlatformFee(REGISTRATION_GROSS_CENTS);
+    expect(netCents).toBe(REGISTRATION_FEE_CENTS);
+    expect(feeCents).toBe(PLATFORM_FEE_CENTS);
+    expect(netCents + feeCents).toBe(REGISTRATION_GROSS_CENTS);
+  });
+
+  it('never lets the fee enter the compensation split — net is the base', () => {
+    const { netCents } = splitPlatformFee(2300);
+    const a = allocateRegistrationFee(netCents);
+    const total =
+      a.companyReserveCents +
+      a.directReferralPoolCents +
+      a.generationPoolCents +
+      a.rankPoolContributionCents +
+      a.leadershipPoolContributionCents;
+    // The engine only ever sees the $20 net, never the $23 gross.
+    expect(netCents).toBe(2000);
+    expect(total).toBe(2000);
+  });
+
+  it('supports a configurable fee and a zero fee', () => {
+    expect(splitPlatformFee(2300, 500)).toEqual({ netCents: 1800, feeCents: 500 });
+    expect(splitPlatformFee(2300, 0)).toEqual({ netCents: 2300, feeCents: 0 });
+  });
+
+  it('rejects a non-positive gross or a fee that exceeds it', () => {
+    expect(() => splitPlatformFee(0)).toThrow();
+    expect(() => splitPlatformFee(-1)).toThrow();
+    expect(() => splitPlatformFee(20.5)).toThrow();
+    expect(() => splitPlatformFee(2300, -1)).toThrow();
+    expect(() => splitPlatformFee(2300, 2301)).toThrow();
   });
 });

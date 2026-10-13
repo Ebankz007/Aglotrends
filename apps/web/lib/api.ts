@@ -769,9 +769,21 @@ export interface PlatformSettingsDto {
   registrationOpen: boolean;
 }
 
+export interface PlatformFeeSettingsDto {
+  walletAddress: string;
+  network: string;
+  asset: string;
+  amountCents: number;
+  enabled: boolean;
+  /** The amount actually applied to new payments (0 when disabled). */
+  effectiveAmountCents: number;
+  walletConfigured: boolean;
+}
+
 export interface AdminSettingsDto {
   gateway: GatewaySettingsDto;
   platform: PlatformSettingsDto;
+  fees: PlatformFeeSettingsDto;
   /** Stored overrides, or null when the landing page is on its defaults. */
   content: Record<string, unknown> | null;
 }
@@ -813,6 +825,24 @@ export async function savePlatformSettings(input: {
   return data.platform;
 }
 
+/**
+ * The operator's transaction-fee wallet. SUPERADMIN only — this address
+ * receives platform revenue and is distinct from the gateway receiving wallet.
+ */
+export async function savePlatformFeeSettings(input: {
+  walletAddress?: string;
+  network?: string;
+  asset?: string;
+  amountCents?: number;
+  enabled?: boolean;
+}): Promise<PlatformFeeSettingsDto> {
+  const data = await request<{ fees: PlatformFeeSettingsDto }>("/admin/settings/fees", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return data.fees;
+}
+
 export async function saveSiteContent(content: unknown): Promise<Record<string, unknown>> {
   const data = await request<{ content: Record<string, unknown> }>("/admin/settings/content", {
     method: "PUT",
@@ -847,4 +877,132 @@ export async function sendBroadcast(input: {
 export async function fetchBroadcasts(): Promise<AuditEntryDto[]> {
   const data = await request<{ broadcasts: AuditEntryDto[] }>("/admin/notifications");
   return data.broadcasts;
+}
+
+/* --------------------------------------------------- admin: platform fees */
+
+export interface PlatformFeeDto {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  paymentId: string | null;
+  purpose: PaymentPurpose;
+  amountCents: number;
+  currency: string;
+  walletAddress: string;
+  network: string;
+  asset: string;
+  status: "PENDING" | "SETTLED";
+  settledAt: string | null;
+  settledBy: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface PlatformFeeSummaryDto {
+  totalCents: number;
+  pendingCents: number;
+  settledCents: number;
+  totalCount: number;
+  pendingCount: number;
+  settledCount: number;
+}
+
+export interface AdminPlatformFeesDto {
+  fees: PlatformFeeDto[];
+  summary: PlatformFeeSummaryDto;
+}
+
+export async function fetchAdminPlatformFees(
+  status?: "PENDING" | "SETTLED",
+): Promise<AdminPlatformFeesDto> {
+  const qs = status ? `?status=${status}` : "";
+  return request<AdminPlatformFeesDto>(`/admin/platform-fees${qs}`);
+}
+
+/** Mark specific fees settled after the operator has moved the funds by hand. */
+export async function settlePlatformFees(
+  ids: string[],
+  note?: string,
+): Promise<{ settled: number }> {
+  const data = await request<{ result: { settled: number } }>("/admin/platform-fees/settle", {
+    method: "POST",
+    body: JSON.stringify({ ids, note }),
+  });
+  return data.result;
+}
+
+/** Settle every PENDING fee — the "sweep the wallet" action. */
+export async function settleAllPendingFees(note?: string): Promise<{ settled: number }> {
+  const data = await request<{ result: { settled: number } }>("/admin/platform-fees/settle-all", {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+  return data.result;
+}
+
+/* ------------------------------------------------------------------ KYC/AML */
+
+export type KycStatus = "NOT_STARTED" | "PENDING" | "VERIFIED" | "REJECTED";
+
+export interface KycDto {
+  status: KycStatus;
+  legalName: string | null;
+  dateOfBirth: string | null;
+  country: string | null;
+  address: string | null;
+  idType: string | null;
+  /** MASKED — the full document number never leaves the server. */
+  idNumberMasked: string | null;
+  documents: unknown;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+}
+
+export async function fetchMyKyc(): Promise<KycDto> {
+  const data = await request<{ kyc: KycDto }>("/kyc");
+  return data.kyc;
+}
+
+export async function submitKyc(input: {
+  legalName: string;
+  dateOfBirth: string;
+  country: string;
+  address: string;
+  idType: string;
+  idNumber: string;
+  documents?: unknown;
+}): Promise<KycDto> {
+  const data = await request<{ kyc: KycDto }>("/kyc", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.kyc;
+}
+
+export interface AdminKycDto extends KycDto {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  userFullName: string | null;
+  reviewedBy: string | null;
+}
+
+export async function fetchAdminKyc(status?: KycStatus): Promise<AdminKycDto[]> {
+  const qs = status ? `?status=${status}` : "";
+  const data = await request<{ submissions: AdminKycDto[] }>(`/admin/kyc${qs}`);
+  return data.submissions;
+}
+
+export async function reviewKyc(
+  userId: string,
+  decision: "VERIFIED" | "REJECTED",
+  reason?: string,
+): Promise<KycDto> {
+  const data = await request<{ kyc: KycDto }>(`/admin/kyc/${userId}/review`, {
+    method: "POST",
+    body: JSON.stringify({ decision, reason }),
+  });
+  return data.kyc;
 }

@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db.js';
 import { ApiError } from '../lib/errors.js';
+import { assertKycVerified } from './kyc.js';
 import { creditWallet, debitWallet } from './wallet.js';
 
 export interface PayoutRequestInput {
@@ -10,8 +11,15 @@ export interface PayoutRequestInput {
   details?: string;
 }
 
-/** Member requests a withdrawal. Funds are held (debited) immediately. */
+/**
+ * Member requests a withdrawal. Funds are held (debited) immediately.
+ *
+ * KYC/AML gate: no money leaves the system until identity is VERIFIED. The
+ * check runs BEFORE the hold, so an unverified member cannot even freeze funds
+ * into a withdrawal they will not be allowed to complete.
+ */
 export async function requestPayout(input: PayoutRequestInput) {
+  await assertKycVerified(input.userId);
   return db.transaction(async (tx) => {
     const [payout] = await tx
       .insert(schema.payouts)

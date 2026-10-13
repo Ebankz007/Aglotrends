@@ -9,6 +9,20 @@
 /** §1 — one-time fee paid by every new member on signup. $20.00. */
 export const REGISTRATION_FEE_CENTS = 2000;
 
+/**
+ * §1 (amended) — platform transaction fee added to EVERY inbound gateway
+ * payment. $3.00.
+ *
+ * This is PLATFORM REVENUE, not compensation. It is carved out of the gross
+ * charge BEFORE the compensation split runs, so `REGISTRATION_FEE_CENTS` (the
+ * $20 base that drives the 45/55 allocation) is untouched. A registration
+ * therefore charges $23.00: $20.00 into the plan, $3.00 to the operator wallet.
+ */
+export const PLATFORM_FEE_CENTS = 300;
+
+/** §1 (amended) — the gross amount charged for a registration: $20.00 + $3.00. */
+export const REGISTRATION_GROSS_CENTS = REGISTRATION_FEE_CENTS + PLATFORM_FEE_CENTS;
+
 /** §1 — minimum a client must fund into their OWN broker account to activate copy-trading. Not revenue. */
 export const MIN_FUNDING_CENTS = 5000;
 

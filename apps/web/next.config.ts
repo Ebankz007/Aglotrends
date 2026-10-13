@@ -14,13 +14,14 @@ const scriptSrc = isDev
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   async rewrites() {
-    // Proxy API calls to the backend on :4000 — same-origin, so the httpOnly
+    // Proxy API calls to the backend on :4001 — same-origin, so the httpOnly
     // session cookie set by the API is attached automatically and there is no
-    // CORS to configure.
+    // CORS to configure. (4001, not the more obvious 4000: COPINEX's API also
+    // defaults to 4000, and whichever starts first silently wins the port.)
     return [
       {
         source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/:path*`,
+        destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001"}/api/:path*`,
       },
     ];
   },

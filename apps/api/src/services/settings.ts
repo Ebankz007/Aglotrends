@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { PLATFORM_FEE_CENTS } from '@aglotrends/engine';
 import { config } from '../config.js';
 import { db, schema } from '../db.js';
 import { decryptSecret, encryptSecret, encryptionAvailable, isEncrypted } from '../lib/crypto.js';
@@ -185,6 +186,83 @@ export async function saveGatewaySettings(input: GatewaySettingsInput): Promise<
 function seal(value: string | null): string {
   const trimmed = (value ?? '').trim();
   return trimmed ? encryptSecret(trimmed) : '';
+}
+
+/* ------------------------------------------------------- platform fee wallet */
+
+export const PLATFORM_FEE_KEY = 'platform.fees';
+
+/**
+ * The operator's transaction-fee configuration. The fee is added to every
+ * inbound gateway payment and routed to `walletAddress` — a wallet the
+ * SUPERADMIN provides, which is deliberately SEPARATE from the gateway's
+ * receiving wallet so platform revenue and member funds never share an address.
+ *
+ * This address is never returned to members; it appears only in the
+ * SUPERADMIN console.
+ */
+export interface PlatformFeeSettings {
+  walletAddress: string;
+  network: string;
+  asset: string;
+  /** Fee in cents. Default $3.00. */
+  amountCents: number;
+  /** Master switch — when false, no fee is added to any payment. */
+  enabled: boolean;
+}
+
+const PLATFORM_FEE_DEFAULTS: PlatformFeeSettings = {
+  walletAddress: '',
+  network: 'trc20',
+  asset: 'USDT',
+  amountCents: PLATFORM_FEE_CENTS,
+  enabled: true,
+};
+
+export async function resolvePlatformFeeSettings(): Promise<PlatformFeeSettings> {
+  const stored = (await getSetting<Partial<PlatformFeeSettings>>(PLATFORM_FEE_KEY)) ?? {};
+  const merged = { ...PLATFORM_FEE_DEFAULTS, ...stored };
+  return {
+    ...merged,
+    amountCents:
+      Number.isInteger(merged.amountCents) && merged.amountCents >= 0
+        ? merged.amountCents
+        : PLATFORM_FEE_CENTS,
+  };
+}
+
+export interface PlatformFeeSettingsView extends PlatformFeeSettings {
+  /** The fee actually applied right now: 0 when disabled. */
+  effectiveAmountCents: number;
+  /** True when a destination wallet has been configured. */
+  walletConfigured: boolean;
+}
+
+export async function platformFeeSettingsView(): Promise<PlatformFeeSettingsView> {
+  const s = await resolvePlatformFeeSettings();
+  return {
+    ...s,
+    effectiveAmountCents: s.enabled ? s.amountCents : 0,
+    walletConfigured: s.walletAddress.trim().length > 0,
+  };
+}
+
+export async function savePlatformFeeSettings(
+  input: Partial<PlatformFeeSettings>,
+): Promise<PlatformFeeSettingsView> {
+  const current = (await getSetting<Partial<PlatformFeeSettings>>(PLATFORM_FEE_KEY)) ?? {};
+  const next: Partial<PlatformFeeSettings> = { ...current };
+
+  if (input.walletAddress !== undefined) next.walletAddress = input.walletAddress.trim();
+  if (input.network !== undefined) next.network = input.network.trim();
+  if (input.asset !== undefined) next.asset = input.asset.trim().toUpperCase();
+  if (input.amountCents !== undefined) {
+    next.amountCents = Math.max(0, Math.trunc(input.amountCents));
+  }
+  if (input.enabled !== undefined) next.enabled = input.enabled;
+
+  await setSetting(PLATFORM_FEE_KEY, next);
+  return platformFeeSettingsView();
 }
 
 /* -------------------------------------------------------------- site content */

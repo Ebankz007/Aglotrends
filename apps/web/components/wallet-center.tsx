@@ -21,6 +21,7 @@ import {
   createRegistrationPayment,
   fetchLedger,
   fetchMe,
+  fetchMyKyc,
   fetchMyPayments,
   fetchMyPayouts,
   fetchWallet,
@@ -29,6 +30,7 @@ import {
   type PaymentDto,
 } from "@/lib/api";
 import { formatCents, formatDateTime } from "@/lib/format";
+import { KycPanel } from "@/components/kyc-panel";
 
 function payoutTone(status: string): "neutral" | "ok" | "warn" | "danger" | "info" {
   switch (status) {
@@ -73,14 +75,15 @@ function CheckoutLink({ href, children }: { href: string; children: React.ReactN
 
 export function WalletCenter() {
   const { data, error, loading, reload } = useAsync(async () => {
-    const [me, balanceCents, entries, payouts, payments] = await Promise.all([
+    const [me, balanceCents, entries, payouts, payments, kyc] = await Promise.all([
       fetchMe(),
       fetchWallet(),
       fetchLedger(),
       fetchMyPayouts(),
       fetchMyPayments(),
+      fetchMyKyc(),
     ]);
-    return { me, balanceCents, entries, payouts, payments };
+    return { me, balanceCents, entries, payouts, payments, kyc };
   });
 
   const [checkout, setCheckout] = useState<PaymentDto | null>(null);
@@ -99,6 +102,8 @@ export function WalletCenter() {
   const [ok, setOk] = useState<string | null>(null);
 
   const isActive = data?.me?.isActiveMember ?? true;
+  const kycStatus = data?.kyc?.status ?? "NOT_STARTED";
+  const kycVerified = kycStatus === "VERIFIED";
 
   /** Create the §1 registration invoice and surface the checkout link. */
   async function onPayRegistration() {
@@ -259,6 +264,8 @@ export function WalletCenter() {
         </Note>
       )}
 
+      {!loading && data?.kyc && <KycPanel kyc={data.kyc} onSubmitted={reload} />}
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Panel title="Fund your wallet">
           <form onSubmit={onDeposit} className="flex flex-col gap-4">
@@ -297,7 +304,16 @@ export function WalletCenter() {
             />
             {formError && <Note tone="error">{formError}</Note>}
             {ok && <Note tone="ok">{ok}</Note>}
-            <ActionButton type="submit" disabled={busy}>
+            {!kycVerified && (
+              <Note tone="warn">
+                {kycStatus === "PENDING"
+                  ? "Your identity verification is under review — withdrawals unlock once it is approved."
+                  : kycStatus === "REJECTED"
+                    ? "Your identity verification was rejected. Resubmit it above to unlock withdrawals."
+                    : "Complete identity verification above to unlock withdrawals."}
+              </Note>
+            )}
+            <ActionButton type="submit" disabled={busy || !kycVerified}>
               {busy ? "Submitting…" : "Request payout"}
             </ActionButton>
             <p className="text-xs text-mist">

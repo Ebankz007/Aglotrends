@@ -13,6 +13,8 @@ import { ContentTab } from "@/components/admin/content-tab";
 import { SettingsTab } from "@/components/admin/settings-tab";
 import { SettlementsTab, PoolsTab, PayoutsTab } from "@/components/admin/finance-tabs";
 import { PaymentsTab } from "@/components/admin/payments-tab";
+import { FeesTab } from "@/components/admin/fees-tab";
+import { KycTab } from "@/components/admin/kyc-tab";
 import { RanksTab } from "@/components/admin/ranks-tab";
 import { AuditTab } from "@/components/admin/audit-tab";
 
@@ -32,6 +34,8 @@ const TABS = [
   { id: "ranks", label: "Ranks", superAdminOnly: false },
   { id: "pools", label: "Pools", superAdminOnly: false },
   { id: "payments", label: "Payments", superAdminOnly: false },
+  { id: "fees", label: "Fees", superAdminOnly: true },
+  { id: "kyc", label: "KYC", superAdminOnly: false },
   { id: "payouts", label: "Payouts", superAdminOnly: false },
   { id: "audit", label: "Audit", superAdminOnly: false },
 ] as const;
@@ -74,6 +78,8 @@ export function AdminConsole() {
       {tab === "ranks" && <RanksTab />}
       {tab === "pools" && <PoolsTab />}
       {tab === "payments" && <PaymentsTab />}
+      {tab === "fees" && <FeesTab />}
+      {tab === "kyc" && <KycTab />}
       {tab === "payouts" && <PayoutsTab />}
       {tab === "audit" && <AuditTab />}
     </PortalPage>

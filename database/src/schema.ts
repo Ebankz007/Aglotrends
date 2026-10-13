@@ -67,6 +67,17 @@ export const payoutStatusEnum = pgEnum('payout_status', [
 export const paymentPurposeEnum = pgEnum('payment_purpose', ['REGISTRATION', 'DEPOSIT']);
 export const paymentStatusEnum = pgEnum('payment_status', ['PENDING', 'PAID', 'EXPIRED', 'FAILED']);
 
+/** KYC/AML — a member must be VERIFIED before any withdrawal leaves the system. */
+export const kycStatusEnum = pgEnum('kyc_status', [
+  'NOT_STARTED',
+  'PENDING',
+  'VERIFIED',
+  'REJECTED',
+]);
+
+/** Platform transaction fee — collected per inbound gateway payment, settled by hand. */
+export const platformFeeStatusEnum = pgEnum('platform_fee_status', ['PENDING', 'SETTLED']);
+
 /* --------------------------------------------------------------- identity */
 
 export const users = pgTable('users', {
@@ -336,7 +347,14 @@ export const payments = pgTable(
       .notNull()
       .references(() => users.id),
     purpose: paymentPurposeEnum('purpose').notNull(),
+    /** Total charged to the member, INCLUDING the platform fee. */
     amountCents: integer('amount_cents').notNull(),
+    /**
+     * The platform transaction fee carved out of `amountCents` (default $3.00).
+     * It is platform revenue, NOT compensation: the engine still allocates the
+     * registration base ($20.00) untouched. Net = amountCents - platformFeeCents.
+     */
+    platformFeeCents: integer('platform_fee_cents').notNull().default(0),
     currency: text('currency').notNull().default('USDT'),
     status: paymentStatusEnum('status').notNull().default('PENDING'),
     /** Merchant-side reference echoed by the gateway (join key for webhooks). */
@@ -355,6 +373,81 @@ export const payments = pgTable(
     uniqueIndex('payments_ref_idx').on(t.paymentRef),
     index('payments_status_idx').on(t.status),
   ],
+);
+
+/* ------------------------------------------- platform fees (operator revenue) */
+
+/**
+ * Platform transaction fees — the flat fee carved out of every inbound gateway
+ * payment (default $3.00), routed to an operator-controlled wallet configured
+ * by a SUPERADMIN and never exposed to members.
+ *
+ * One row per collected fee. `walletAddress`/`network`/`asset` are SNAPSHOTTED
+ * at collection time so a later wallet change cannot rewrite history.
+ * Settlement is MANUAL: the operator moves the funds and marks the row SETTLED.
+ */
+export const platformFees = pgTable(
+  'platform_fees',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    paymentId: uuid('payment_id').references(() => payments.id),
+    purpose: paymentPurposeEnum('purpose').notNull(),
+    amountCents: integer('amount_cents').notNull(),
+    currency: text('currency').notNull().default('USDT'),
+    /** Destination wallet as configured when this fee was collected. */
+    walletAddress: text('wallet_address').notNull().default(''),
+    network: text('network').notNull().default(''),
+    asset: text('asset').notNull().default(''),
+    status: platformFeeStatusEnum('status').notNull().default('PENDING'),
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+    settledBy: uuid('settled_by').references(() => users.id),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('platform_fees_status_idx').on(t.status),
+    index('platform_fees_user_idx').on(t.userId),
+    // One fee per payment — the idempotency token for webhook replays.
+    uniqueIndex('platform_fees_payment_idx').on(t.paymentId),
+  ],
+);
+
+/* ------------------------------------------------------------------ KYC/AML */
+
+/**
+ * KYC/AML identity record. One per member. A member must reach VERIFIED before
+ * any withdrawal is allowed out of the system (see services/payouts.ts).
+ *
+ * Documents are stored as references (URLs / storage keys), not blobs — the
+ * upload target is a deployment concern. `idNumber` is sensitive and is never
+ * returned in full by the API (see the masked view in services/kyc.ts).
+ */
+export const kycProfiles = pgTable(
+  'kyc_profiles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    status: kycStatusEnum('status').notNull().default('NOT_STARTED'),
+    legalName: text('legal_name'),
+    dateOfBirth: date('date_of_birth'),
+    country: text('country'),
+    address: text('address'),
+    idType: text('id_type'),
+    idNumber: text('id_number'),
+    documents: jsonb('documents'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    reviewedBy: uuid('reviewed_by').references(() => users.id),
+    rejectionReason: text('rejection_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('kyc_profiles_user_idx').on(t.userId)],
 );
 
 /* ------------------------------------------------ notifications / audit */

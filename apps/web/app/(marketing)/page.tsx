@@ -22,7 +22,7 @@ export const revalidate = 60;
  */
 async function loadSiteContent(): Promise<SiteContent> {
   try {
-    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
     const res = await fetch(`${base}/api/content`, { next: { revalidate: 60 } });
     if (!res.ok) return DEFAULT_SITE_CONTENT;
     const data = (await res.json()) as { content?: unknown };

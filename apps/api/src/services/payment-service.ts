@@ -5,8 +5,9 @@ import { config } from '../config.js';
 import { db, schema } from '../db.js';
 import { ApiError } from '../lib/errors.js';
 import { logger } from '../logger.js';
+import { recordPlatformFee } from './platform-fees.js';
 import { processRegistration } from './registration.js';
-import { isGatewayMock, resolveGatewaySettings } from './settings.js';
+import { isGatewayMock, resolveGatewaySettings, resolvePlatformFeeSettings } from './settings.js';
 import { creditWallet } from './wallet.js';
 
 /** §1 — the one-time membership fee ($20.00), paid by every new member. */
@@ -135,16 +136,23 @@ async function requestGatewayCheckout(input: {
   return { gatewayTxid: parsed.gatewayTxid, paymentUrl: parsed.paymentUrl };
 }
 
-/** Create an invoice for a member. REGISTRATION is always the fixed $20 fee. */
+/**
+ * Create an invoice for a member.
+ *
+ * REGISTRATION is the fixed $20 compensation base PLUS the platform transaction
+ * fee — $23.00 at the default $3.00 fee. DEPOSIT is the member's requested
+ * amount plus the same fee. The fee is platform revenue, recorded separately on
+ * confirmation; the compensation engine only ever sees the net base.
+ */
 export async function createPayment(
   userId: string,
   purpose: PaymentPurpose,
   amountCents?: number,
 ): Promise<typeof schema.payments.$inferSelect> {
-  const cents = purpose === 'REGISTRATION' ? FEE_CENTS : amountCents;
+  const netCents = purpose === 'REGISTRATION' ? FEE_CENTS : amountCents;
   if (
     purpose === 'DEPOSIT' &&
-    (!Number.isInteger(cents) || (cents as number) <= 0 || (cents as number) > MAX_PAYMENT_CENTS)
+    (!Number.isInteger(netCents) || (netCents as number) <= 0 || (netCents as number) > MAX_PAYMENT_CENTS)
   ) {
     throw ApiError.badRequest(
       'Deposit amount must be a positive integer up to $1,000,000',
@@ -152,10 +160,14 @@ export async function createPayment(
     );
   }
 
+  const feeSettings = await resolvePlatformFeeSettings();
+  const feeCents = feeSettings.enabled ? feeSettings.amountCents : 0;
+  const grossCents = (netCents as number) + feeCents;
+
   const paymentRef = `AGL-${randomUUID()}`;
   const { gatewayTxid, paymentUrl } = await requestGatewayCheckout({
     paymentRef,
-    amountCents: cents as number,
+    amountCents: grossCents,
     purpose,
   });
 
@@ -164,7 +176,8 @@ export async function createPayment(
     .values({
       userId,
       purpose,
-      amountCents: cents as number,
+      amountCents: grossCents,
+      platformFeeCents: feeCents,
       paymentRef,
       gatewayTxid,
       paymentUrl,
@@ -303,16 +316,38 @@ export async function handlePaymentWebhook(payload: unknown): Promise<{
     }
 
     const now = new Date();
+    const feeCents = payment.platformFeeCents ?? 0;
+    const netCents = payment.amountCents - feeCents;
+
     await db.transaction(async (tx) => {
       await tx
         .update(schema.payments)
         .set({ status: 'PAID', paidAt: now, txHash: txHash ?? null })
         .where(eq(schema.payments.id, payment.id));
 
-      if (payment.purpose === 'DEPOSIT') {
+      // The platform fee is recorded in the SAME transaction as the PAID write,
+      // so the operator's ledger can never miss a fee that was actually charged.
+      // `recordPlatformFee` is idempotent on payment_id, so a webhook replay
+      // cannot double-count it.
+      if (feeCents > 0) {
+        const feeSettings = await resolvePlatformFeeSettings();
+        await recordPlatformFee(tx, {
+          userId: payment.userId,
+          paymentId: payment.id,
+          purpose: payment.purpose as PaymentPurpose,
+          amountCents: feeCents,
+          currency: payment.currency,
+          walletAddress: feeSettings.walletAddress,
+          network: feeSettings.network,
+          asset: feeSettings.asset,
+        });
+      }
+
+      if (payment.purpose === 'DEPOSIT' && netCents > 0) {
+        // Only the NET is credited — the fee is not the member's money.
         await creditWallet(tx, {
           userId: payment.userId,
-          amountCents: payment.amountCents,
+          amountCents: netCents,
           type: 'CRYPTO_DEPOSIT',
           refType: 'payment',
           refId: payment.id,

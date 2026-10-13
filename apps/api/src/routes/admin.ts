@@ -14,13 +14,22 @@ import {
   gatewaySettingsView,
   getPlatformSettings,
   getSiteContent,
+  platformFeeSettingsView,
   saveGatewaySettings,
+  savePlatformFeeSettings,
   savePlatformSettings,
   saveSiteContent,
 } from '../services/settings.js';
 import { poolBalances } from '../services/pools.js';
 import { approvePayout, payPayout, rejectPayout } from '../services/payouts.js';
 import { cancelPendingPayment, confirmPaymentManually } from '../services/payment-service.js';
+import {
+  listPlatformFees,
+  platformFeeSummary,
+  settleAllPendingFees,
+  settlePlatformFees,
+} from '../services/platform-fees.js';
+import { listKycSubmissions, reviewKyc } from '../services/kyc.js';
 
 export const adminRouter = Router();
 // requireAuth must run first: requireStaff only checks req.user, it does not
@@ -537,6 +546,7 @@ adminRouter.get(
     res.json({
       gateway: await gatewaySettingsView(),
       platform: await getPlatformSettings(),
+      fees: await platformFeeSettingsView(),
       content: await getSiteContent(),
     });
   }),
@@ -582,6 +592,131 @@ adminRouter.put(
     const platform = await savePlatformSettings(body);
     await audit(req.user!.id, 'settings.platform.update', 'system', undefined, body);
     res.json({ platform });
+  }),
+);
+
+const platformFeeSettingsSchema = z.object({
+  walletAddress: z.string().max(200).optional(),
+  network: z.string().min(1).max(40).optional(),
+  asset: z.string().min(1).max(20).optional(),
+  amountCents: z.number().int().min(0).max(1_000_000).optional(),
+  enabled: z.boolean().optional(),
+});
+
+/**
+ * The operator's transaction-fee wallet. SUPERADMIN-only — this address
+ * receives platform revenue, and it is deliberately DISTINCT from the gateway's
+ * member-facing receiving wallet so the two money flows never share an address.
+ */
+adminRouter.put(
+  '/settings/fees',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = platformFeeSettingsSchema.parse(req.body);
+    const fees = await savePlatformFeeSettings(body);
+    await audit(req.user!.id, 'settings.fees.update', 'system', undefined, {
+      fields: Object.keys(body),
+      walletConfigured: fees.walletConfigured,
+    });
+    res.json({ fees });
+  }),
+);
+
+/* -------------------------------------------------------- platform fee ledger */
+
+/**
+ * The collected-fee ledger plus its whole-table totals. SUPERADMIN-only: this
+ * is operator revenue, not member data.
+ */
+adminRouter.get(
+  '/platform-fees',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const status = req.query.status === 'PENDING' || req.query.status === 'SETTLED'
+      ? req.query.status
+      : undefined;
+    const [fees, summary] = await Promise.all([
+      listPlatformFees({ status }),
+      platformFeeSummary(),
+    ]);
+    res.json({ fees, summary });
+  }),
+);
+
+const settleFeesSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(1000),
+  note: z.string().max(500).optional(),
+});
+
+/** Mark specific fees settled after the operator has moved the funds by hand. */
+adminRouter.post(
+  '/platform-fees/settle',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = settleFeesSchema.parse(req.body);
+    const result = await settlePlatformFees({
+      ids: body.ids,
+      adminId: req.user!.id,
+      note: body.note,
+    });
+    await audit(req.user!.id, 'platform_fees.settle', 'system', undefined, {
+      requested: body.ids.length,
+      settled: result.settled,
+    });
+    res.json({ result });
+  }),
+);
+
+/** Settle every PENDING fee — the "sweep the wallet" action. */
+adminRouter.post(
+  '/platform-fees/settle-all',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const body = z.object({ note: z.string().max(500).optional() }).parse(req.body ?? {});
+    const result = await settleAllPendingFees({ adminId: req.user!.id, note: body.note });
+    await audit(req.user!.id, 'platform_fees.settle_all', 'system', undefined, result);
+    res.json({ result });
+  }),
+);
+
+/* -------------------------------------------------------------------- KYC/AML */
+
+/** The verification queue. Staff-level: reviewing identity is routine ops. */
+adminRouter.get(
+  '/kyc',
+  asyncHandler(async (req, res) => {
+    const status =
+      req.query.status === 'PENDING' ||
+      req.query.status === 'VERIFIED' ||
+      req.query.status === 'REJECTED' ||
+      req.query.status === 'NOT_STARTED'
+        ? req.query.status
+        : undefined;
+    const submissions = await listKycSubmissions({ status });
+    res.json({ submissions });
+  }),
+);
+
+const kycReviewSchema = z.object({
+  decision: z.enum(['VERIFIED', 'REJECTED']),
+  reason: z.string().max(500).optional(),
+});
+
+/** Approve or reject a member's identity submission. */
+adminRouter.post(
+  '/kyc/:userId/review',
+  asyncHandler(async (req, res) => {
+    const body = kycReviewSchema.parse(req.body);
+    const kyc = await reviewKyc({
+      userId: req.params.userId!,
+      adminId: req.user!.id,
+      decision: body.decision,
+      reason: body.reason,
+    });
+    await audit(req.user!.id, 'kyc.review', 'user', req.params.userId, {
+      decision: body.decision,
+    });
+    res.json({ kyc });
   }),
 );
 

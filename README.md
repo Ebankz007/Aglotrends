@@ -77,8 +77,8 @@ pnpm db:seed         # optional: fuller demo data
 **4. Run.**
 
 ```powershell
-pnpm dev:api   # http://localhost:4000  (GET /health)
-pnpm dev:web   # http://localhost:3000  (proxies /api/* to :4000)
+pnpm dev:api   # http://localhost:4001  (GET /health)
+pnpm dev:web   # http://localhost:3000  (proxies /api/* to :4001)
 ```
 
 ## Dev fixtures

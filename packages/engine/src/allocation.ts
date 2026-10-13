@@ -8,6 +8,7 @@
 import {
   COMMUNITY_POOL_SPLIT_BPS,
   FEE_SPLIT_BPS,
+  PLATFORM_FEE_CENTS,
   REGISTRATION_FEE_CENTS,
   TRADING_PROFIT_SPLIT_BPS,
 } from './constants.js';
@@ -114,4 +115,33 @@ export function distributeTradingProfitShare(
   }
 
   return { clientCents, sponsorCents, companyCents };
+}
+
+/**
+ * §1 (amended) — carve the platform transaction fee out of a gross charge.
+ *
+ * The fee is operator revenue and never enters the compensation split, so the
+ * NET amount is what the engine allocates (registration) or what is credited to
+ * a wallet (deposit). Keeping this as one pure function means the API never
+ * does fee arithmetic inline, and the invariant `net + fee === gross` is proven
+ * in one place.
+ *
+ * @param grossCents Total charged to the member, in cents.
+ * @param feeCents   Platform fee to withhold. Defaults to PLATFORM_FEE_CENTS.
+ * @throws if the fee would exceed the gross charge.
+ */
+export function splitPlatformFee(
+  grossCents: number,
+  feeCents: number = PLATFORM_FEE_CENTS,
+): { netCents: number; feeCents: number } {
+  if (!Number.isInteger(grossCents) || grossCents <= 0) {
+    throw new Error(`splitPlatformFee: grossCents must be a positive integer, got ${grossCents}`);
+  }
+  if (!Number.isInteger(feeCents) || feeCents < 0) {
+    throw new Error(`splitPlatformFee: feeCents must be a non-negative integer, got ${feeCents}`);
+  }
+  if (feeCents > grossCents) {
+    throw new Error(`splitPlatformFee: fee ${feeCents} exceeds gross ${grossCents}`);
+  }
+  return { netCents: grossCents - feeCents, feeCents };
 }

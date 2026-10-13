@@ -55,6 +55,18 @@ const schema = z.object({
   PAY2CRYPTO_API_URL: z.string().optional().default(''),
   PAY2CRYPTO_TOKEN: z.string().optional().default(''),
   PAY2CRYPTO_WEBHOOK_SECRET: z.string().optional().default(''),
+
+  // Review-deploy hatch — set ALLOW_MOCK_RAIL=true ONLY on a deployment that
+  // must never take real money. It lets production boot with the mock payment
+  // rail and without SMTP so the site is reviewable before live credentials
+  // exist. The API logs a loud warning at boot while this is on.
+  ALLOW_MOCK_RAIL: z
+    .string()
+    .optional()
+    .default('')
+    .refine((v) => v === '' || v === 'true' || v === 'false', {
+      message: 'ALLOW_MOCK_RAIL must be "true" or "false" (or empty)',
+    }),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -69,7 +81,12 @@ export type Config = typeof config;
 
 /** Mock mode: no credentials, or the test suite — never hits the live rail. */
 export function isPaymentMockMode(): boolean {
-  return config.NODE_ENV === 'test' || !config.PAY2CRYPTO_API_URL || !config.PAY2CRYPTO_TOKEN;
+  return (
+    config.NODE_ENV === 'test' ||
+    config.ALLOW_MOCK_RAIL === 'true' ||
+    !config.PAY2CRYPTO_API_URL ||
+    !config.PAY2CRYPTO_TOKEN
+  );
 }
 
 /**
@@ -77,11 +94,23 @@ export function isPaymentMockMode(): boolean {
  * production means forgeable tokens; a mock payment rail in production means
  * fake checkouts; a missing SMTP means silently dropped reset emails. All three
  * are worse than a loud crash at deploy time.
+ *
+ * The ALLOW_MOCK_RAIL hatch suspends the rail + SMTP checks for a review-only
+ * deployment. JWT/encryption checks stay enforced — the hatch is about missing
+ * third-party credentials, never about weak secrets.
  */
 if (config.NODE_ENV === 'production') {
+  const mockRail = config.ALLOW_MOCK_RAIL === 'true';
+  if (mockRail) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      'ALLOW_MOCK_RAIL=true — booting WITHOUT the live Pay2Crypto rail and WITHOUT SMTP. Review-only deployment: never take real money while this is on.',
+    );
+  }
   const offenders: string[] = [];
   if (config.JWT_SECRET === 'dev-only-secret-change-me') offenders.push('JWT_SECRET');
-  if (config.PAY2CRYPTO_WEBHOOK_SECRET === '') offenders.push('PAY2CRYPTO_WEBHOOK_SECRET');
+  if (!mockRail && config.PAY2CRYPTO_WEBHOOK_SECRET === '')
+    offenders.push('PAY2CRYPTO_WEBHOOK_SECRET');
   if (offenders.length > 0) {
     // eslint-disable-next-line no-console
     console.error(
@@ -89,14 +118,14 @@ if (config.NODE_ENV === 'production') {
     );
     process.exit(1);
   }
-  if (!config.PAY2CRYPTO_API_URL || !config.PAY2CRYPTO_TOKEN) {
+  if (!mockRail && (!config.PAY2CRYPTO_API_URL || !config.PAY2CRYPTO_TOKEN)) {
     // eslint-disable-next-line no-console
     console.error(
       'Refusing to boot in production without the Pay2Crypto rail (PAY2CRYPTO_API_URL + PAY2CRYPTO_TOKEN). Mock mode is for development only.',
     );
     process.exit(1);
   }
-  if (!config.SMTP_URL) {
+  if (!mockRail && !config.SMTP_URL) {
     // eslint-disable-next-line no-console
     console.error(
       'Refusing to boot in production without SMTP_URL. Format: smtps://user:password@host:465 (password percent-encoded).',

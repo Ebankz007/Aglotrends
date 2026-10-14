@@ -65,6 +65,7 @@ adminRouter.get(
         role: schema.users.role,
         status: schema.users.status,
         sponsorId: schema.users.sponsorId,
+        referralCode: schema.users.referralCode,
         isActiveMember: schema.users.isActiveMember,
         highestAssociateRank: schema.users.highestAssociateRank,
         highestLeadershipRank: schema.users.highestLeadershipRank,
@@ -77,15 +78,21 @@ adminRouter.get(
     const sponsors =
       sponsorIds.length > 0
         ? await db
-            .select({ id: schema.users.id, email: schema.users.email })
+            .select({
+              id: schema.users.id,
+              email: schema.users.email,
+              referralCode: schema.users.referralCode,
+            })
             .from(schema.users)
             .where(inArray(schema.users.id, sponsorIds))
         : [];
     const sponsorEmailById = new Map(sponsors.map((s) => [s.id, s.email]));
+    const sponsorCodeById = new Map(sponsors.map((s) => [s.id, s.referralCode]));
     res.json({
       members: rows.map((r) => ({
         ...r,
         sponsorEmail: r.sponsorId ? (sponsorEmailById.get(r.sponsorId) ?? null) : null,
+        sponsorCode: r.sponsorId ? (sponsorCodeById.get(r.sponsorId) ?? null) : null,
       })),
     });
   }),
@@ -150,7 +157,7 @@ adminRouter.patch(
 );
 
 const sponsorReassignSchema = z.object({
-  sponsorEmail: z.string().email(),
+  sponsorCode: z.string().trim().min(4).max(16),
 });
 
 /**
@@ -197,13 +204,13 @@ adminRouter.patch(
     }
 
     const [sponsor] = await db
-      .select({ id: schema.users.id, role: schema.users.role })
+      .select({ id: schema.users.id, role: schema.users.role, referralCode: schema.users.referralCode })
       .from(schema.users)
-      .where(eq(schema.users.email, body.sponsorEmail.toLowerCase()))
+      .where(eq(schema.users.referralCode, body.sponsorCode.trim().toUpperCase()))
       .limit(1);
     if (!sponsor) {
       throw ApiError.badRequest(
-        'New sponsor not found — use the email of an existing member',
+        'New sponsor not found — use the referral code of an existing member',
         'SPONSOR_NOT_FOUND',
       );
     }

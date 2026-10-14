@@ -19,6 +19,11 @@ import {
 import { publicUser } from '../lib/user-view.js';
 import { sendEmail } from '../notifications/email.js';
 import { audit } from '../services/audit.js';
+import {
+  ensureReferralCode,
+  mintReferralCode,
+  resolveSponsorByCode,
+} from '../services/referral.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { getPlatformSettings } from '../services/settings.js';
@@ -31,10 +36,11 @@ const registerSchema = z.object({
   fullName: z.string().min(1),
   phone: z.string().optional(),
   country: z.string().optional(),
-  // A referrer is compulsory — every account enters under a sponsor. The
-  // address must resolve to an existing member; a dangling or missing
-  // referrer is a 400 and nothing is written.
-  sponsorEmail: z.string().email(),
+  // A referrer is compulsory — every account enters under a sponsor, named by
+  // referral code (e.g. K7Q2M9XD, from the sponsor's link). The code must
+  // resolve to an existing member; a dangling or missing code is a 400 and
+  // nothing is written.
+  referralCode: z.string().trim().min(4).max(16),
 });
 
 authRouter.post(
@@ -56,19 +62,8 @@ authRouter.post(
       .where(eq(schema.users.email, email));
     if (existing) throw ApiError.conflict('Email already registered');
 
-    let sponsorId: string | null = null;
-    {
-      const [sponsor] = await db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.email, body.sponsorEmail.toLowerCase()));
-      if (!sponsor)
-        throw ApiError.badRequest(
-          'Referrer not found — registration requires a valid referrer link or email',
-          'SPONSOR_NOT_FOUND',
-        );
-      sponsorId = sponsor.id;
-    }
+    const sponsor = await resolveSponsorByCode(body.referralCode);
+    const sponsorId = sponsor.id;
 
     const [user] = await db
       .insert(schema.users)
@@ -92,12 +87,17 @@ authRouter.post(
 
     await db.insert(schema.wallets).values({ userId: user.id, balanceCents: 0 }).onConflictDoNothing();
 
+    // Every member leaves registration owning a join code (collision-safe mint).
+    const code = await mintReferralCode(user.id);
+
     const token = signToken({ id: user.id, role: user.role });
     setSessionCookie(res, token);
 
     // No compensation here. The client is told to settle the fee; the wallet
     // page creates the invoice and the webhook activates the account.
-    res.status(201).json({ token, user: publicUser(user), paymentRequired: true });
+    res
+      .status(201)
+      .json({ token, user: publicUser({ ...user, referralCode: code }), paymentRequired: true });
   }),
 );
 
@@ -125,9 +125,12 @@ authRouter.post(
     }
 
     await db.update(schema.users).set({ lastLoginAt: new Date() }).where(eq(schema.users.id, user.id));
+    // Backfill: rows predating referral codes gain one on first login after
+    // the feature ships, so every account converges without a data migration.
+    const code = await ensureReferralCode(user.id);
     const token = signToken({ id: user.id, role: user.role });
     setSessionCookie(res, token);
-    res.json({ token, user: publicUser(user) });
+    res.json({ token, user: publicUser({ ...user, referralCode: code }) });
   }),
 );
 
@@ -138,8 +141,9 @@ authRouter.get(
     const [user] = await db.select().from(schema.users).where(eq(schema.users.id, req.user!.id));
     if (!user) throw ApiError.notFound('User not found');
     const isStaff = user.role === 'ADMIN' || user.role === 'SUPERADMIN';
+    const code = await ensureReferralCode(user.id);
     res.json({
-      user: publicUser(user),
+      user: publicUser({ ...user, referralCode: code }),
       // Staff who have not enrolled cannot reach the console; the client uses
       // this to route them straight to enrolment instead of a wall of 403s.
       twoFactorRequired: isStaff && !user.twoFactorEnabled,

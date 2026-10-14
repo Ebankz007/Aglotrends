@@ -43,6 +43,13 @@
       "when": 1791889033939,
       "tag": "0005_skinny_mongu",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791987013141,
+      "tag": "0006_swift_shotgun",
+      "breakpoints": true
     }
   ]
 }

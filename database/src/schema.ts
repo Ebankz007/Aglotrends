@@ -123,6 +123,11 @@ export const users = pgTable('users', {
 
   // Referral / network
   sponsorId: uuid('sponsor_id').references((): AnyPgColumn => users.id),
+  // Public join handle (e.g. K7Q2M9XD). Shown in the portal and encoded in
+  // referral links (/register?ref=CODE). Unique and immutable once minted;
+  // never an email address. Nullable only for rows predating the feature —
+  // the API mints one on demand (see api services/referral.ts).
+  referralCode: text('referral_code').unique(),
   matrixParentId: uuid('matrix_parent_id').references((): AnyPgColumn => users.id),
   isActiveMember: boolean('is_active_member').notNull().default(true),
   highestAssociateRank: integer('highest_associate_rank').notNull().default(0),

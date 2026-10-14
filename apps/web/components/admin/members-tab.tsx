@@ -31,7 +31,7 @@ export function MembersTab() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
-  const [moveEmail, setMoveEmail] = useState("");
+  const [moveCode, setMoveCode] = useState("");
   const [moveNote, setMoveNote] = useState<string | null>(null);
 
   // Only SUPERADMIN may change a role (the API enforces it); don't show an
@@ -39,19 +39,19 @@ export function MembersTab() {
   const isSuperAdmin = me?.role === "SUPERADMIN";
 
   async function move(id: string) {
-    const sponsorEmail = moveEmail.trim();
-    if (!sponsorEmail) {
-      setActionError("Enter the new sponsor's email.");
+    const sponsorCode = moveCode.trim().toUpperCase();
+    if (!sponsorCode) {
+      setActionError("Enter the new sponsor's referral code.");
       return;
     }
     setBusyId(id);
     setActionError(null);
     setMoveNote(null);
     try {
-      const result = await moveMemberSponsor(id, sponsorEmail);
+      const result = await moveMemberSponsor(id, sponsorCode);
       setMoveNote(result.note);
       setMoveId(null);
-      setMoveEmail("");
+      setMoveCode("");
       reload();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Move failed.");
@@ -87,6 +87,9 @@ export function MembersTab() {
               <Td>
                 <span className="font-semibold">{m.fullName}</span>
                 <p className="text-xs text-mist">{m.email}</p>
+                {m.referralCode && (
+                  <p className="mt-0.5 font-mono text-[11px] font-bold text-gold-2">{m.referralCode}</p>
+                )}
               </Td>
               <Td>
                 {isSuperAdmin && (
@@ -124,12 +127,11 @@ export function MembersTab() {
                 {moveId === m.id ? (
                   <span className="flex flex-col gap-1.5">
                     <input
-                      className="w-44 rounded-xl border border-white/10 bg-night-2 px-2.5 py-1.5 text-xs text-soft outline-none transition focus:border-brand/50"
-                      type="email"
-                      placeholder="new.sponsor@example.com"
-                      value={moveEmail}
+                      className="w-44 rounded-xl border border-white/10 bg-night-2 px-2.5 py-1.5 font-mono text-xs text-soft uppercase outline-none transition focus:border-brand/50"
+                      placeholder="NEW CODE"
+                      value={moveCode}
                       disabled={busyId === m.id}
-                      onChange={(e) => setMoveEmail(e.target.value)}
+                      onChange={(e) => setMoveCode(e.target.value)}
                     />
                     <span className="flex gap-1.5">
                       <button
@@ -145,7 +147,7 @@ export function MembersTab() {
                         disabled={busyId === m.id}
                         onClick={() => {
                           setMoveId(null);
-                          setMoveEmail("");
+                          setMoveCode("");
                         }}
                         className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold text-mist transition hover:bg-white/10 disabled:opacity-40"
                       >
@@ -155,8 +157,14 @@ export function MembersTab() {
                   </span>
                 ) : (
                   <span className="flex flex-col gap-1">
-                    <span className="max-w-44 truncate text-xs text-mist" title={m.sponsorEmail ?? ""}>
-                      {m.sponsorEmail ?? "—"}
+                    <span
+                      className="max-w-44 truncate font-mono text-xs font-bold text-soft"
+                      title={m.sponsorEmail ?? ""}
+                    >
+                      {m.sponsorCode ?? "—"}
+                    </span>
+                    <span className="max-w-44 truncate text-[11px] text-mist" title={m.sponsorEmail ?? ""}>
+                      {m.sponsorEmail ?? ""}
                     </span>
                     {m.role === "MEMBER" && (
                       <button
@@ -164,7 +172,7 @@ export function MembersTab() {
                         disabled={busyId === m.id}
                         onClick={() => {
                           setMoveId(m.id);
-                          setMoveEmail("");
+                          setMoveCode("");
                           setMoveNote(null);
                         }}
                         className="w-fit rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold text-soft transition hover:bg-white/10 disabled:opacity-40"

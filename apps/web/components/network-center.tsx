@@ -2,8 +2,9 @@
 
 import { Badge, Empty, Note, Panel, PortalPage, Stat, Table, Td, Tr } from "@/components/portal-ui";
 import { useAsync } from "@/lib/hooks";
-import { fetchMatrix, fetchNetwork, fetchRankProgress } from "@/lib/api";
+import { fetchMatrix, fetchMe, fetchNetwork, fetchRankProgress } from "@/lib/api";
 import { formatCents, shortId } from "@/lib/format";
+import { useState } from "react";
 
 function Progress({ label, value, target }: { label: string; value: number; target: number }) {
   const pct = target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 100;
@@ -24,13 +25,32 @@ function Progress({ label, value, target }: { label: string; value: number; targ
 
 export function NetworkCenter() {
   const { data, error, loading } = useAsync(async () => {
-    const [network, ranks, matrix] = await Promise.all([
+    const [me, network, ranks, matrix] = await Promise.all([
+      fetchMe(),
       fetchNetwork(),
       fetchRankProgress(),
       fetchMatrix(),
     ]);
-    return { network, ranks, matrix };
+    return { me, network, ranks, matrix };
   });
+  const [copied, setCopied] = useState(false);
+
+  async function copyLink() {
+    const link = data?.me?.referralLink;
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = link;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  }
 
   return (
     <PortalPage title="Network">
@@ -135,6 +155,32 @@ export function NetworkCenter() {
               })}
             </div>
           </div>
+        )}
+      </Panel>
+
+      <Panel title="Your referral link">
+        {loading ? (
+          <Empty>Loading…</Empty>
+        ) : data?.me?.referralCode && data?.me?.referralLink ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-mist">
+              New members join under you with your code{" "}
+              <span className="font-mono font-bold text-soft">{data.me.referralCode}</span> — a
+              referrer code is required at registration.
+            </p>
+            <p className="break-all rounded-xl border border-white/10 bg-night-2 px-3 py-2 font-mono text-xs text-soft">
+              {data.me.referralLink}
+            </p>
+            <button
+              type="button"
+              onClick={() => void copyLink()}
+              className="w-fit rounded-full bg-brand px-5 py-2 text-sm font-bold text-night transition hover:brightness-110 active:scale-[0.99]"
+            >
+              {copied ? "Copied!" : "Copy referral link"}
+            </button>
+          </div>
+        ) : (
+          <Empty>Your referral code is being prepared — reload in a moment.</Empty>
         )}
       </Panel>
 

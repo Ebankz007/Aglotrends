@@ -93,6 +93,10 @@ export interface UserDto {
   role: UserRole;
   status: AccountStatus;
   sponsorId: string | null;
+  /** Public join handle (e.g. K7Q2M9XD). Null until minted (registration mints). */
+  referralCode: string | null;
+  /** Shareable join link (/register?ref=CODE). Null when no code yet. */
+  referralLink: string | null;
   /** False until the §1 registration fee is settled — gates compensation. */
   isActiveMember: boolean;
   highestAssociateRank: number;
@@ -271,6 +275,8 @@ export interface AdminMemberDto {
   status: AccountStatus;
   sponsorId: string | null;
   sponsorEmail: string | null;
+  sponsorCode: string | null;
+  referralCode: string | null;
   isActiveMember: boolean;
   highestAssociateRank: number;
   highestLeadershipRank: number;
@@ -335,7 +341,8 @@ export interface RegisterInput {
   fullName: string;
   phone?: string;
   country?: string;
-  sponsorEmail?: string;
+  /** Sponsor's referral code (required). */
+  referralCode: string;
 }
 
 export async function register(
@@ -655,13 +662,13 @@ export async function updateAdminMember(
  */
 export async function moveMemberSponsor(
   memberId: string,
-  sponsorEmail: string,
+  sponsorCode: string,
 ): Promise<{ member: AdminMemberDto; note: string }> {
   const data = await request<{ member: AdminMemberDto; note: string }>(
     `/admin/members/${memberId}/sponsor`,
     {
       method: "PATCH",
-      body: JSON.stringify({ sponsorEmail }),
+      body: JSON.stringify({ sponsorCode }),
     },
   );
   return data;

@@ -7,9 +7,9 @@ export const metadata = {
 export default async function RegisterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sponsor?: string }>;
+  searchParams: Promise<{ ref?: string }>;
 }) {
-  const { sponsor } = await searchParams;
+  const { ref } = await searchParams;
   return (
     <main className="mx-auto w-full max-w-md px-4 pb-16 pt-8 sm:px-6">
       <div className="rounded-3xl border border-white/10 bg-navy p-6 sm:p-8">
@@ -18,7 +18,7 @@ export default async function RegisterPage({
           Join Aglotrends and start building your network.
         </p>
         <div className="mt-6">
-          <AuthForm mode="register" sponsorEmail={sponsor} />
+          <AuthForm mode="register" referralCode={ref} />
         </div>
       </div>
     </main>

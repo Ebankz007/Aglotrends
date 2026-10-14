@@ -11,11 +11,11 @@ type Mode = "login" | "register";
 /** Shared login/register form. On success the session cookie is set by the API. */
 export function AuthForm({
   mode,
-  sponsorEmail: initialSponsor,
+  referralCode: initialReferral,
   notice,
 }: {
   mode: Mode;
-  sponsorEmail?: string;
+  referralCode?: string;
   notice?: string;
 }) {
   const router = useRouter();
@@ -24,7 +24,7 @@ export function AuthForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [sponsorEmail, setSponsorEmail] = useState(initialSponsor ?? "");
+  const [referralCode, setReferralCode] = useState(initialReferral ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -39,9 +39,9 @@ export function AuthForm({
     setBusy(true);
     try {
       if (!isLogin) {
-        const ref = sponsorEmail.trim();
+        const ref = referralCode.trim().toUpperCase();
         if (!ref) {
-          setError("A referrer is required — please use your sponsor's link or enter their email.");
+          setError("A referrer code is required — please use your sponsor's link or enter their code.");
           setBusy(false);
           return;
         }
@@ -49,7 +49,7 @@ export function AuthForm({
           email,
           password,
           fullName: fullName.trim(),
-          sponsorEmail: ref,
+          referralCode: ref,
         });
         // Registration does not activate the account — the §1 fee does. Send the
         // new member straight to the wallet, where they settle it.
@@ -153,11 +153,10 @@ export function AuthForm({
       />
       {!isLogin && (
         <Field
-          label="Referrer email (required)"
-          type="email"
-          value={sponsorEmail}
-          onChange={setSponsorEmail}
-          placeholder="your.sponsor@example.com"
+          label="Referral code (required)"
+          value={referralCode}
+          onChange={setReferralCode}
+          placeholder="e.g. K7Q2M9XD"
           autoComplete="off"
           required
         />

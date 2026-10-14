@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { asyncHandler } from '../lib/async.js';
-import { requireAuth } from '../lib/auth.js';
+import { requireActiveMember, requireAuth } from '../lib/auth.js';
 import { getPublishedResource, listPublishedResources } from '../services/education.js';
 
 export const educationRouter = Router();
-educationRouter.use(requireAuth);
+educationRouter.use(requireAuth, requireActiveMember);
 
 /** The member learning library — published resources only. */
 educationRouter.get(

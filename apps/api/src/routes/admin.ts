@@ -73,7 +73,21 @@ adminRouter.get(
       .from(schema.users)
       .orderBy(desc(schema.users.createdAt))
       .limit(500);
-    res.json({ members: rows });
+    const sponsorIds = [...new Set(rows.map((r) => r.sponsorId).filter((s): s is string => !!s))];
+    const sponsors =
+      sponsorIds.length > 0
+        ? await db
+            .select({ id: schema.users.id, email: schema.users.email })
+            .from(schema.users)
+            .where(inArray(schema.users.id, sponsorIds))
+        : [];
+    const sponsorEmailById = new Map(sponsors.map((s) => [s.id, s.email]));
+    res.json({
+      members: rows.map((r) => ({
+        ...r,
+        sponsorEmail: r.sponsorId ? (sponsorEmailById.get(r.sponsorId) ?? null) : null,
+      })),
+    });
   }),
 );
 
@@ -132,6 +146,114 @@ adminRouter.patch(
 
     await audit(req.user!.id, 'member.update', 'user', updated.id, body);
     res.json({ member: updated });
+  }),
+);
+
+const sponsorReassignSchema = z.object({
+  sponsorEmail: z.string().email(),
+});
+
+/**
+ * Move a member under a new sponsor, by request ("place a member under
+ * another member"). Money semantics, read carefully:
+ *
+ * - Past payouts STAND. The `registrations` row snapshotted the old sponsor
+ *   and bonuses already paid are never re-run.
+ * - Future upline attribution (generation, rank volume, sponsor overrides)
+ *   follows the NEW chain from this moment on.
+ * - The matrix seat does NOT move — in a forced matrix with spillover the
+ *   sponsor and the matrix parent are routinely different people, so a moved
+ *   member is structurally ordinary.
+ * - Inactive members are the clean case: placement and bonuses simply follow
+ *   the new sponsor when the fee settles.
+ *
+ * Guards: member accounts only, sponsor must be a member account, no
+ * self-sponsorship, and no cycles (a member can never land under their own
+ * downline). Everything is audited.
+ */
+adminRouter.patch(
+  '/members/:id/sponsor',
+  asyncHandler(async (req, res) => {
+    const body = sponsorReassignSchema.parse(req.body);
+    const targetId = req.params.id!;
+
+    const [target] = await db
+      .select({
+        id: schema.users.id,
+        email: schema.users.email,
+        role: schema.users.role,
+        sponsorId: schema.users.sponsorId,
+        isActiveMember: schema.users.isActiveMember,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, targetId))
+      .limit(1);
+    if (!target) throw ApiError.notFound('Member not found');
+    if (target.role !== 'MEMBER') {
+      throw ApiError.badRequest(
+        'Only member accounts can be moved under a new sponsor',
+        'INVALID_INPUT',
+      );
+    }
+
+    const [sponsor] = await db
+      .select({ id: schema.users.id, role: schema.users.role })
+      .from(schema.users)
+      .where(eq(schema.users.email, body.sponsorEmail.toLowerCase()))
+      .limit(1);
+    if (!sponsor) {
+      throw ApiError.badRequest(
+        'New sponsor not found — use the email of an existing member',
+        'SPONSOR_NOT_FOUND',
+      );
+    }
+    if (sponsor.id === targetId) {
+      throw ApiError.badRequest('A member cannot sponsor themselves', 'INVALID_INPUT');
+    }
+    if (sponsor.role !== 'MEMBER') {
+      throw ApiError.badRequest('The new sponsor must be a member account', 'INVALID_INPUT');
+    }
+    if (target.sponsorId === sponsor.id) {
+      throw ApiError.badRequest('Member is already under this sponsor', 'INVALID_INPUT');
+    }
+
+    // Cycle guard: walk the candidate sponsor's upline — the target must never
+    // appear above them, or the tree would loop and generation walks would spin.
+    const seen = new Set<string>();
+    let cursor: string | null = sponsor.id;
+    while (cursor) {
+      if (cursor === targetId) {
+        throw ApiError.badRequest(
+          'Cannot move a member under their own downline — that would loop the referral tree',
+          'SPONSOR_CYCLE',
+        );
+      }
+      if (seen.has(cursor)) break;
+      seen.add(cursor);
+      const [row] = await db
+        .select({ sponsorId: schema.users.sponsorId })
+        .from(schema.users)
+        .where(eq(schema.users.id, cursor))
+        .limit(1);
+      cursor = row?.sponsorId ?? null;
+    }
+
+    const [updated] = await db
+      .update(schema.users)
+      .set({ sponsorId: sponsor.id, updatedAt: new Date() })
+      .where(eq(schema.users.id, targetId))
+      .returning({ id: schema.users.id, email: schema.users.email, sponsorId: schema.users.sponsorId });
+    if (!updated) throw ApiError.notFound('Member not found');
+
+    await audit(req.user!.id, 'member.sponsor_reassigned', 'user', targetId, {
+      from: target.sponsorId,
+      to: sponsor.id,
+      wasActiveMember: target.isActiveMember,
+    });
+    res.json({
+      member: updated,
+      note: 'Past payouts stand; future upline attribution follows the new sponsor; matrix seat unchanged.',
+    });
   }),
 );
 

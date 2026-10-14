@@ -270,6 +270,7 @@ export interface AdminMemberDto {
   role: UserRole;
   status: AccountStatus;
   sponsorId: string | null;
+  sponsorEmail: string | null;
   isActiveMember: boolean;
   highestAssociateRank: number;
   highestLeadershipRank: number;
@@ -625,6 +626,25 @@ export async function updateAdminMember(
     body: JSON.stringify(patch),
   });
   return data.member;
+}
+
+/**
+ * Move a member under a new sponsor. Returns the updated member plus the
+ * server's note on money semantics (past payouts stand; future attribution
+ * follows the new sponsor; matrix seat unchanged).
+ */
+export async function moveMemberSponsor(
+  memberId: string,
+  sponsorEmail: string,
+): Promise<{ member: AdminMemberDto; note: string }> {
+  const data = await request<{ member: AdminMemberDto; note: string }>(
+    `/admin/members/${memberId}/sponsor`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ sponsorEmail }),
+    },
+  );
+  return data;
 }
 
 export async function fetchAdminBrokerLinks(): Promise<BrokerLinkDto[]> {

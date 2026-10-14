@@ -4,7 +4,7 @@ import { desc, eq } from 'drizzle-orm';
 import { db, schema } from '../db.js';
 import { asyncHandler } from '../lib/async.js';
 import { ApiError } from '../lib/errors.js';
-import { requireAuth } from '../lib/auth.js';
+import { requireActiveMember, requireAuth } from '../lib/auth.js';
 import { requestPayout } from '../services/payouts.js';
 
 export const walletRouter = Router();
@@ -55,6 +55,7 @@ const payoutSchema = z.object({
 
 walletRouter.post(
   '/payouts',
+  requireActiveMember,
   asyncHandler(async (req, res) => {
     const body = payoutSchema.parse(req.body);
     const payout = await requestPayout({ userId: req.user!.id, ...body });

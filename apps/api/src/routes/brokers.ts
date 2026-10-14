@@ -4,10 +4,10 @@ import { asc, desc, eq } from 'drizzle-orm';
 import { db, schema } from '../db.js';
 import { asyncHandler } from '../lib/async.js';
 import { ApiError } from '../lib/errors.js';
-import { requireAuth } from '../lib/auth.js';
+import { requireActiveMember, requireAuth } from '../lib/auth.js';
 
 export const brokersRouter = Router();
-brokersRouter.use(requireAuth);
+brokersRouter.use(requireAuth, requireActiveMember);
 
 /** The list of broker links the admin maintains. */
 brokersRouter.get(

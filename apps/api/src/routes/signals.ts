@@ -3,10 +3,10 @@ import { desc, eq } from 'drizzle-orm';
 import { db, schema } from '../db.js';
 import { asyncHandler } from '../lib/async.js';
 import { ApiError } from '../lib/errors.js';
-import { requireAuth } from '../lib/auth.js';
+import { requireActiveMember, requireAuth } from '../lib/auth.js';
 
 export const signalsRouter = Router();
-signalsRouter.use(requireAuth);
+signalsRouter.use(requireAuth, requireActiveMember);
 
 signalsRouter.get(
   '/',

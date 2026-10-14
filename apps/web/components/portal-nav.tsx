@@ -14,24 +14,30 @@ import {
 } from "@/components/icons";
 
 const items = [
-  { href: "/network", label: "Network", hint: "Referrals, matrix & ranks", Icon: NetworkIcon },
-  { href: "/wallet", label: "Wallet", hint: "Balance, ledger & payouts", Icon: WalletIcon },
-  { href: "/signals", label: "Signals", hint: "Published trade ideas", Icon: SignalIcon },
-  { href: "/brokers", label: "Copy Trading", hint: "Broker links & accounts", Icon: BrokerIcon },
-  { href: "/community", label: "Community", hint: "Traders & strategies", Icon: CommunityIcon },
-  { href: "/education", label: "Education", hint: "Courses, guides & resources", Icon: BookIcon },
-  { href: "/events", label: "Events", hint: "Webinars, workshops & meetups", Icon: CalendarIcon },
-  { href: "/support", label: "Support", hint: "Help centre & tickets", Icon: LifebuoyIcon },
-  { href: "/notifications", label: "Notifications", hint: "Alerts & channels", Icon: BellIcon },
-  { href: "/settings", label: "Settings", hint: "Profile & preferences", Icon: SettingsIcon },
-  { href: "/dashboard", label: "Dashboard", hint: "Overview", Icon: DashboardIcon },
+  { href: "/network", label: "Network", hint: "Referrals, matrix & ranks", Icon: NetworkIcon, gated: true },
+  { href: "/wallet", label: "Wallet", hint: "Balance, ledger & payouts", Icon: WalletIcon, gated: false },
+  { href: "/signals", label: "Signals", hint: "Published trade ideas", Icon: SignalIcon, gated: true },
+  { href: "/brokers", label: "Copy Trading", hint: "Broker links & accounts", Icon: BrokerIcon, gated: true },
+  { href: "/community", label: "Community", hint: "Traders & strategies", Icon: CommunityIcon, gated: true },
+  { href: "/education", label: "Education", hint: "Courses, guides & resources", Icon: BookIcon, gated: true },
+  { href: "/events", label: "Events", hint: "Webinars, workshops & meetups", Icon: CalendarIcon, gated: true },
+  { href: "/support", label: "Support", hint: "Help centre & tickets", Icon: LifebuoyIcon, gated: false },
+  { href: "/notifications", label: "Notifications", hint: "Alerts & channels", Icon: BellIcon, gated: false },
+  { href: "/settings", label: "Settings", hint: "Profile & preferences", Icon: SettingsIcon, gated: false },
+  { href: "/dashboard", label: "Dashboard", hint: "Overview", Icon: DashboardIcon, gated: false },
 ];
 
-/** Grid of portal destinations shown on the dashboard. */
-export function PortalNav() {
+/**
+ * Grid of portal destinations shown on the dashboard. Members whose membership
+ * is not active yet see only the ungated destinations (wallet to settle the
+ * fee, support, notifications, settings) — the gated areas unlock on
+ * activation, enforced again server-side.
+ */
+export function PortalNav({ isActive = true }: { isActive?: boolean }) {
+  const visible = items.filter((item) => isActive || !item.gated);
   return (
     <nav className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {items.map(({ href, label, hint, Icon }) => (
+      {visible.map(({ href, label, hint, Icon }) => (
         <Link
           key={href}
           href={href}

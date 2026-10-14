@@ -11,11 +11,11 @@ import {
 import { db } from '../db.js';
 import { asyncHandler } from '../lib/async.js';
 import { ApiError } from '../lib/errors.js';
-import { requireAuth } from '../lib/auth.js';
+import { requireActiveMember, requireAuth } from '../lib/auth.js';
 import { loadMatrixTree, loadNetworkIndex } from '../services/network.js';
 
 export const networkRouter = Router();
-networkRouter.use(requireAuth);
+networkRouter.use(requireAuth, requireActiveMember);
 
 networkRouter.get(
   '/',

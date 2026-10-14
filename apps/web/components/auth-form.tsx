@@ -39,11 +39,17 @@ export function AuthForm({
     setBusy(true);
     try {
       if (!isLogin) {
+        const ref = sponsorEmail.trim();
+        if (!ref) {
+          setError("A referrer is required — please use your sponsor's link or enter their email.");
+          setBusy(false);
+          return;
+        }
         await register({
           email,
           password,
           fullName: fullName.trim(),
-          sponsorEmail: sponsorEmail.trim() || undefined,
+          sponsorEmail: ref,
         });
         // Registration does not activate the account — the §1 fee does. Send the
         // new member straight to the wallet, where they settle it.
@@ -147,12 +153,13 @@ export function AuthForm({
       />
       {!isLogin && (
         <Field
-          label="Sponsor email (optional)"
+          label="Referrer email (required)"
           type="email"
           value={sponsorEmail}
           onChange={setSponsorEmail}
           placeholder="your.sponsor@example.com"
           autoComplete="off"
+          required
         />
       )}
 

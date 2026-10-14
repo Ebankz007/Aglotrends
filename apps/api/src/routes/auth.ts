@@ -24,7 +24,10 @@ const registerSchema = z.object({
   fullName: z.string().min(1),
   phone: z.string().optional(),
   country: z.string().optional(),
-  sponsorEmail: z.string().email().optional(),
+  // A referrer is compulsory — every account enters under a sponsor. The
+  // address must resolve to an existing member; a dangling or missing
+  // referrer is a 400 and nothing is written.
+  sponsorEmail: z.string().email(),
 });
 
 authRouter.post(
@@ -47,12 +50,16 @@ authRouter.post(
     if (existing) throw ApiError.conflict('Email already registered');
 
     let sponsorId: string | null = null;
-    if (body.sponsorEmail) {
+    {
       const [sponsor] = await db
         .select({ id: schema.users.id })
         .from(schema.users)
         .where(eq(schema.users.email, body.sponsorEmail.toLowerCase()));
-      if (!sponsor) throw ApiError.badRequest('Sponsor not found');
+      if (!sponsor)
+        throw ApiError.badRequest(
+          'Referrer not found — registration requires a valid referrer link or email',
+          'SPONSOR_NOT_FOUND',
+        );
       sponsorId = sponsor.id;
     }
 

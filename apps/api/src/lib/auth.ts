@@ -282,3 +282,45 @@ export const requireSuperAdmin: RequestHandler = (req, _res, next) => {
   }
   next();
 };
+
+/**
+ * Membership activation gate. Staff always pass. A MEMBER passes only when the
+ * §1 fee has settled (`isActiveMember`) — until then the client area is the
+ * wallet (to settle the fee), support, and settings; everything else 403s with
+ * ACTIVATION_REQUIRED so the client can route to the wallet, not to login.
+ *
+ * `isActiveMember` is read from the database, not the token, so an activation
+ * takes effect on the very next request without re-login.
+ */
+export const requireActiveMember: RequestHandler = (req, _res, next) => {
+  const authUser = req.user;
+  if (!authUser) {
+    next(ApiError.unauthorized());
+    return;
+  }
+  if (authUser.role !== 'MEMBER') {
+    next();
+    return;
+  }
+  db.select({ isActiveMember: schema.users.isActiveMember })
+    .from(schema.users)
+    .where(eq(schema.users.id, authUser.id))
+    .limit(1)
+    .then(([row]) => {
+      if (!row) {
+        next(ApiError.unauthorized('Account no longer exists'));
+        return;
+      }
+      if (!row.isActiveMember) {
+        next(
+          ApiError.forbidden(
+            'Membership activation required — settle the registration fee to unlock this area.',
+            'ACTIVATION_REQUIRED',
+          ),
+        );
+        return;
+      }
+      next();
+    })
+    .catch(next);
+};

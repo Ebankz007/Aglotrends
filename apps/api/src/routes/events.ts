@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../lib/async.js';
-import { requireAuth } from '../lib/auth.js';
+import { requireActiveMember, requireAuth } from '../lib/auth.js';
 import {
   cancelRsvp,
   getEvent,
@@ -10,7 +10,7 @@ import {
 } from '../services/events.js';
 
 export const eventsRouter = Router();
-eventsRouter.use(requireAuth);
+eventsRouter.use(requireAuth, requireActiveMember);
 
 /** Upcoming and past published events, each with the caller's RSVP state. */
 eventsRouter.get(

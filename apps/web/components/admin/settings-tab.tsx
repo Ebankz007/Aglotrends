@@ -186,7 +186,7 @@ export function SettingsTab() {
             label="Fee per payment (USD)"
             value={feeAmount}
             onChange={setFeeAmount}
-            placeholder="3.00"
+            placeholder="5.00"
           />
           <div className="sm:col-span-2">
             <Toggle

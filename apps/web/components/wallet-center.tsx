@@ -207,8 +207,9 @@ export function WalletCenter() {
         <Panel title="Activate your membership">
           <p className="text-sm text-mist">
             Your account is created, but membership is not active yet. Settle the one-time{" "}
-            <span className="font-bold text-soft">$20.00</span> registration fee to take your seat in
-            the matrix and become eligible for referral and generation bonuses.
+            <span className="font-bold text-soft">$25.00</span> registration fee ($20.00 into the
+            plan, $5.00 platform fee) to take your seat in the matrix and become eligible for
+            referral and generation bonuses.
           </p>
           {payError && (
             <div className="mt-3">
@@ -217,7 +218,7 @@ export function WalletCenter() {
           )}
           <div className="mt-4">
             <ActionButton onClick={onPayRegistration} disabled={payBusy}>
-              {payBusy ? "Preparing checkout…" : "Pay $20.00 registration fee"}
+              {payBusy ? "Preparing checkout…" : "Pay $25.00 registration fee"}
             </ActionButton>
           </div>
           <p className="mt-3 text-xs text-mist">
@@ -286,41 +287,43 @@ export function WalletCenter() {
           </form>
         </Panel>
 
-        <Panel title="Request a payout">
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            <Field
-              label="Amount (USD)"
-              type="number"
-              value={amount}
-              onChange={setAmount}
-              placeholder="100.00"
-            />
-            <Field label="Method (optional)" value={method} onChange={setMethod} placeholder="USDT TRC20" />
-            <Field
-              label="Payment details (optional)"
-              value={details}
-              onChange={setDetails}
-              placeholder="Wallet address / account"
-            />
-            {formError && <Note tone="error">{formError}</Note>}
-            {ok && <Note tone="ok">{ok}</Note>}
-            {!kycVerified && (
-              <Note tone="warn">
-                {kycStatus === "PENDING"
-                  ? "Your identity verification is under review — withdrawals unlock once it is approved."
-                  : kycStatus === "REJECTED"
-                    ? "Your identity verification was rejected. Resubmit it above to unlock withdrawals."
-                    : "Complete identity verification above to unlock withdrawals."}
-              </Note>
-            )}
-            <ActionButton type="submit" disabled={busy || !kycVerified}>
-              {busy ? "Submitting…" : "Request payout"}
-            </ActionButton>
-            <p className="text-xs text-mist">
-              Funds are held when you request a payout and released once an administrator approves it.
-            </p>
-          </form>
-        </Panel>
+        {!loading && isActive && (
+          <Panel title="Request a payout">
+            <form onSubmit={onSubmit} className="flex flex-col gap-4">
+              <Field
+                label="Amount (USD)"
+                type="number"
+                value={amount}
+                onChange={setAmount}
+                placeholder="100.00"
+              />
+              <Field label="Method (optional)" value={method} onChange={setMethod} placeholder="USDT TRC20" />
+              <Field
+                label="Payment details (optional)"
+                value={details}
+                onChange={setDetails}
+                placeholder="Wallet address / account"
+              />
+              {formError && <Note tone="error">{formError}</Note>}
+              {ok && <Note tone="ok">{ok}</Note>}
+              {!kycVerified && (
+                <Note tone="warn">
+                  {kycStatus === "PENDING"
+                    ? "Your identity verification is under review — withdrawals unlock once it is approved."
+                    : kycStatus === "REJECTED"
+                      ? "Your identity verification was rejected. Resubmit it above to unlock withdrawals."
+                      : "Complete identity verification above to unlock withdrawals."}
+                </Note>
+              )}
+              <ActionButton type="submit" disabled={busy || !kycVerified}>
+                {busy ? "Submitting…" : "Request payout"}
+              </ActionButton>
+              <p className="text-xs text-mist">
+                Funds are held when you request a payout and released once an administrator approves it.
+              </p>
+            </form>
+          </Panel>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

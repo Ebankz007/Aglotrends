@@ -61,9 +61,9 @@ describe('§12 reconciliation invariants', () => {
 });
 
 describe('§1 (amended) platform transaction fee', () => {
-  it('pins the $3.00 platform fee and the $23.00 registration gross', () => {
-    expect(PLATFORM_FEE_CENTS).toBe(300);
-    expect(REGISTRATION_GROSS_CENTS).toBe(2300);
+  it('pins the $5.00 platform fee and the $25.00 registration gross', () => {
+    expect(PLATFORM_FEE_CENTS).toBe(500);
+    expect(REGISTRATION_GROSS_CENTS).toBe(2500);
     expect(REGISTRATION_GROSS_CENTS).toBe(REGISTRATION_FEE_CENTS + PLATFORM_FEE_CENTS);
   });
 
@@ -75,7 +75,7 @@ describe('§1 (amended) platform transaction fee', () => {
   });
 
   it('never lets the fee enter the compensation split — net is the base', () => {
-    const { netCents } = splitPlatformFee(2300);
+    const { netCents } = splitPlatformFee(2500);
     const a = allocateRegistrationFee(netCents);
     const total =
       a.companyReserveCents +
@@ -83,7 +83,7 @@ describe('§1 (amended) platform transaction fee', () => {
       a.generationPoolCents +
       a.rankPoolContributionCents +
       a.leadershipPoolContributionCents;
-    // The engine only ever sees the $20 net, never the $23 gross.
+    // The engine only ever sees the $20 net, never the $25 gross.
     expect(netCents).toBe(2000);
     expect(total).toBe(2000);
   });

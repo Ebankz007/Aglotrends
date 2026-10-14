@@ -7,6 +7,7 @@ import {
   ApiError,
   fetchAdminMembers,
   fetchMe,
+  moveMemberSponsor,
   updateAdminMember,
   type AccountStatus,
   type UserRole,
@@ -29,10 +30,35 @@ export function MembersTab() {
   const { data: me } = useAsync(fetchMe);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [moveId, setMoveId] = useState<string | null>(null);
+  const [moveEmail, setMoveEmail] = useState("");
+  const [moveNote, setMoveNote] = useState<string | null>(null);
 
   // Only SUPERADMIN may change a role (the API enforces it); don't show an
   // ADMIN a control that will always 403.
   const isSuperAdmin = me?.role === "SUPERADMIN";
+
+  async function move(id: string) {
+    const sponsorEmail = moveEmail.trim();
+    if (!sponsorEmail) {
+      setActionError("Enter the new sponsor's email.");
+      return;
+    }
+    setBusyId(id);
+    setActionError(null);
+    setMoveNote(null);
+    try {
+      const result = await moveMemberSponsor(id, sponsorEmail);
+      setMoveNote(result.note);
+      setMoveId(null);
+      setMoveEmail("");
+      reload();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Move failed.");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function patch(id: string, changes: Parameters<typeof updateAdminMember>[1]) {
     setBusyId(id);
@@ -51,10 +77,11 @@ export function MembersTab() {
     <Panel title="Members">
       {error && <Note tone="error">{error}</Note>}
       {actionError && <Note tone="error">{actionError}</Note>}
+      {moveNote && <Note tone="ok">{moveNote}</Note>}
       {loading ? (
         <Empty>Loading…</Empty>
       ) : data && data.length > 0 ? (
-        <Table columns={["Member", "Role", "Status", "Active", "Ranks", "Joined"]}>
+        <Table columns={["Member", "Role", "Status", "Sponsor", "Active", "Ranks", "Joined"]}>
           {data.map((m) => (
             <Tr key={m.id}>
               <Td>
@@ -92,6 +119,61 @@ export function MembersTab() {
                 <div className="mt-1">
                   <Badge tone={statusTone(m.status)}>{m.status}</Badge>
                 </div>
+              </Td>
+              <Td>
+                {moveId === m.id ? (
+                  <span className="flex flex-col gap-1.5">
+                    <input
+                      className="w-44 rounded-xl border border-white/10 bg-night-2 px-2.5 py-1.5 text-xs text-soft outline-none transition focus:border-brand/50"
+                      type="email"
+                      placeholder="new.sponsor@example.com"
+                      value={moveEmail}
+                      disabled={busyId === m.id}
+                      onChange={(e) => setMoveEmail(e.target.value)}
+                    />
+                    <span className="flex gap-1.5">
+                      <button
+                        type="button"
+                        disabled={busyId === m.id}
+                        onClick={() => void move(m.id)}
+                        className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-bold text-emerald-300 transition hover:bg-emerald-400/20 disabled:opacity-40"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === m.id}
+                        onClick={() => {
+                          setMoveId(null);
+                          setMoveEmail("");
+                        }}
+                        className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold text-mist transition hover:bg-white/10 disabled:opacity-40"
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  </span>
+                ) : (
+                  <span className="flex flex-col gap-1">
+                    <span className="max-w-44 truncate text-xs text-mist" title={m.sponsorEmail ?? ""}>
+                      {m.sponsorEmail ?? "—"}
+                    </span>
+                    {m.role === "MEMBER" && (
+                      <button
+                        type="button"
+                        disabled={busyId === m.id}
+                        onClick={() => {
+                          setMoveId(m.id);
+                          setMoveEmail("");
+                          setMoveNote(null);
+                        }}
+                        className="w-fit rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold text-soft transition hover:bg-white/10 disabled:opacity-40"
+                      >
+                        Move
+                      </button>
+                    )}
+                  </span>
+                )}
               </Td>
               <Td>
                 <button

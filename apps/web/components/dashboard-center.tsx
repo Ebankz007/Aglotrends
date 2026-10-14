@@ -10,11 +10,24 @@ import { formatCents, formatDateTime } from "@/lib/format";
 
 export function DashboardCenter() {
   const { data, error, loading } = useAsync(async () => {
-    const [me, balanceCents, network, signals, notifications] = await Promise.all([
-      fetchMe(),
+    const me = await fetchMe();
+    if (!me) throw new Error("Session expired — please sign in again.");
+    // Gated areas 403 for inactive members — don't let their refusals fail
+    // the whole dashboard; the activation panel below is the call to action.
+    const [balanceCents, network, signals, notifications] = await Promise.all([
       fetchMyWallet(),
-      fetchNetwork(),
-      fetchSignals(),
+      me.isActiveMember
+        ? fetchNetwork()
+        : Promise.resolve({
+            personalReferrals: 0,
+            rawTeamVolume: 0,
+            eligibleTeamVolume: 0,
+            directReferrals: [],
+            downlineCount: 0,
+            highestAssociateRank: 0,
+            highestLeadershipRank: 0,
+          }),
+      me.isActiveMember ? fetchSignals() : Promise.resolve([]),
       fetchMyNotifications(),
     ]);
     return {
@@ -35,8 +48,9 @@ export function DashboardCenter() {
       {!loading && data?.me && !data.me.isActiveMember && (
         <Panel title="Membership not active">
           <p className="text-sm text-mist">
-            Settle the one-time <span className="font-bold text-soft">$20.00</span> registration fee
-            to activate your membership and start earning referral and generation bonuses.
+            Settle the one-time <span className="font-bold text-soft">$25.00</span> registration fee
+            ($20.00 into the plan, $5.00 platform fee) to activate your membership and start
+            earning referral and generation bonuses.
           </p>
           <div className="mt-3">
             <Link
@@ -62,7 +76,7 @@ export function DashboardCenter() {
         />
       </section>
 
-      <PortalNav />
+      <PortalNav isActive={data?.me ? data.me.isActiveMember || data.me.role !== "MEMBER" : true} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Panel

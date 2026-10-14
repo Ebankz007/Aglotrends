@@ -42,7 +42,11 @@ const footerNav = [
   },
 ];
 
-const legal = ["Risk disclosure", "Terms of Service", "Privacy Policy"];
+const legal = [
+  { label: "Risk disclosure", href: "/risk-disclosure" },
+  { label: "Terms of Service", href: "/terms" },
+  { label: "Privacy Policy", href: "/privacy" },
+];
 
 /**
  * Load the operator's footer copy and social links. Any failure — API down, bad
@@ -203,8 +207,10 @@ export default async function MarketingLayout({
               <h3 className="text-xs font-bold uppercase tracking-wide text-soft">Legal</h3>
               <ul className="mt-4 space-y-2.5 text-sm">
                 {legal.map((l) => (
-                  <li key={l} className="text-mist">
-                    {l} <span className="text-muted">· Pending</span>
+                  <li key={l.href}>
+                    <a href={l.href} className="text-mist transition hover:text-gold-2">
+                      {l.label}
+                    </a>
                   </li>
                 ))}
               </ul>

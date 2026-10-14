@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { eq } from 'drizzle-orm';
@@ -92,6 +92,45 @@ export function verifyChallengeToken(token: string): string {
     throw ApiError.unauthorized('Invalid verification token');
   }
   return String(decoded.sub);
+}
+
+/* ------------------------------------------ password-reset token */
+
+/**
+ * A password-reset link is a short-lived, single-purpose token, same shape as
+ * the 2FA challenge: it carries no role, so `requireAuth` rejects it, and it
+ * dies after an hour. Single-USE is enforced separately — the sha-256 of the
+ * token is recorded in `sessions` (purpose PASSWORD_RESET) and revoked on
+ * redemption, so a used or superseded link is dead even inside its hour.
+ */
+const PASSWORD_RESET_TTL_MINUTES = 60;
+
+export function signPasswordResetToken(userId: string): string {
+  return jwt.sign({ sub: userId, purpose: 'password-reset' }, config.JWT_SECRET, {
+    expiresIn: `${PASSWORD_RESET_TTL_MINUTES}m`,
+    jwtid: randomUUID(),
+  });
+}
+
+export function verifyPasswordResetToken(token: string): string {
+  let decoded: string | jwt.JwtPayload;
+  try {
+    decoded = jwt.verify(token, config.JWT_SECRET);
+  } catch {
+    throw ApiError.badRequest(
+      'This reset link has expired. Request a new one.',
+      'RESET_TOKEN_EXPIRED',
+    );
+  }
+  if (typeof decoded === 'string' || !decoded.sub || decoded.purpose !== 'password-reset') {
+    throw ApiError.badRequest('This reset link is invalid.', 'RESET_TOKEN_INVALID');
+  }
+  return String(decoded.sub);
+}
+
+/** Opaque lookup handle for single-use tokens — the raw token never rests. */
+export function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 /* ------------------------------------------------------------------ session */

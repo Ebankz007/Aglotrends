@@ -363,6 +363,26 @@ export async function login(email: string, password: string): Promise<LoginResul
   });
 }
 
+/**
+ * Request a password-reset link. Always resolves — the API answers 200 whether
+ * the address exists or not, so callers must show the same "check your inbox"
+ * note unconditionally and never branch on the result.
+ */
+export async function forgotPassword(email: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>("/auth/forgot", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+/** Redeem a reset link with a new password. Does not log the member in. */
+export async function resetPassword(token: string, password: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>("/auth/reset", {
+    method: "POST",
+    body: JSON.stringify({ token, password }),
+  });
+}
+
 /* ------------------------------------------------------- two-factor auth */
 
 export interface TwoFactorStatusDto {

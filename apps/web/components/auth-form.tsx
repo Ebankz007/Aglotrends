@@ -169,6 +169,14 @@ export function AuthForm({
         {busy ? "Please wait…" : isLogin ? "Sign in" : "Create account"}
       </ActionButton>
 
+      {isLogin && !challengeToken && (
+        <p className="text-center text-sm text-mist">
+          <Link href="/forgot-password" className="font-bold text-brand-2 hover:underline">
+            Forgot your password?
+          </Link>
+        </p>
+      )}
+
       <p className="text-center text-sm text-mist">
         {isLogin ? (
           <>

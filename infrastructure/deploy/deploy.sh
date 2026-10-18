@@ -19,14 +19,14 @@
 set -eu
 
 # ── Configure these for the server ──────────────────────
-APP_DIR="/www/wwwroot/aglotrends"   # server checkout of the Aglotrends repo
+APP_DIR="/www/wwwroot/aglotrends.com"   # server checkout of the Aglotrends repo
 BRANCH="main"
 API_PORT="4001"
 WEB_PORT="3200"                     # 3000 belongs to another app on this host
 API_HEALTH="http://127.0.0.1:${API_PORT}/health"
 WEB_HEALTH="http://127.0.0.1:${WEB_PORT}/"
 # Absolute node/pnpm first: webhook/cron shells carry a minimal PATH.
-export PATH="/www/server/nodejs/v22.0.0/bin:$PATH"
+export PATH="/www/server/nodejs/v24.18.0/bin:$PATH"
 # ─────────────────────────────────────────────────────────
 
 log() { echo "[deploy $(date '+%Y-%m-%dT%H:%M:%S')] $1"; }

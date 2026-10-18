@@ -8,6 +8,7 @@ import {
   fetchIntegrations,
   saveGatewaySettings,
   saveIntegrations,
+  sendTestEmail,
   type GatewaySettingsDto,
   type IntegrationsDto,
   type SecretSource,
@@ -101,9 +102,11 @@ export function IntegrationsTab() {
   const [clearGwToken, setClearGwToken] = useState(false);
   const [clearGwSecret, setClearGwSecret] = useState(false);
 
-  // Messaging-channel secrets.
+  // Email secrets — one per provider; only the selected one is shown.
   const [smtpUrl, setSmtpUrl] = useState("");
   const [clearSmtpUrl, setClearSmtpUrl] = useState(false);
+  const [resendKey, setResendKey] = useState("");
+  const [clearResendKey, setClearResendKey] = useState(false);
   const [waToken, setWaToken] = useState("");
   const [clearWaToken, setClearWaToken] = useState(false);
   const [tgToken, setTgToken] = useState("");
@@ -170,16 +173,30 @@ export function IntegrationsTab() {
     await run("email", async () => {
       const saved = await saveIntegrations({
         email: {
+          provider: integrations.email.provider,
           enabled: integrations.email.enabled,
           from: integrations.email.from,
           replyTo: integrations.email.replyTo,
           smtpUrl: clearSmtpUrl ? null : smtpUrl.length > 0 ? smtpUrl : undefined,
+          resendApiKey: clearResendKey ? null : resendKey.length > 0 ? resendKey : undefined,
         },
       });
       setIntegrations(saved);
       setSmtpUrl("");
       setClearSmtpUrl(false);
+      setResendKey("");
+      setClearResendKey(false);
       setNote({ tone: "ok", text: "Email settings saved." });
+    });
+  }
+
+  async function testEmail() {
+    await run("email-test", async () => {
+      const result = await sendTestEmail();
+      setNote({
+        tone: "ok",
+        text: `Test email sent to ${result.to} via ${result.provider === "resend" ? "Resend" : "SMTP"}.`,
+      });
     });
   }
 
@@ -329,7 +346,7 @@ export function IntegrationsTab() {
 
       {/* ------------------------------------------------------------- email */}
       <Panel
-        title="Email (SMTP)"
+        title="Email"
         action={
           integrations.email.configured ? (
             <Badge tone="ok">Active</Badge>
@@ -341,22 +358,63 @@ export function IntegrationsTab() {
         }
       >
         <p className="mb-4 text-sm text-mist">
-          Transactional and signal email. Mailgun and most providers are plain SMTP — paste the
-          connection URL and the platform parses host, port and credentials from it.
+          Transactional and signal email. Choose a provider: SMTP (Mailgun and most relays — paste
+          the connection URL) or Resend (paste the API key). The From address must be on a domain
+          verified with your provider.
         </p>
         <form onSubmit={submitEmail} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <SecretField
-              label="SMTP URL"
-              hint="Format: smtps://user:password@host:465"
-              hasValue={integrations.email.hasSmtpUrl}
-              source={integrations.email.smtpUrlSource}
-              value={smtpUrl}
-              onChange={setSmtpUrl}
-              clearing={clearSmtpUrl}
-              onClearingChange={setClearSmtpUrl}
-            />
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] text-mist">
+              Provider
+            </span>
+            <div className="inline-flex rounded-2xl border border-white/10 bg-night-2 p-1">
+              {(["smtp", "resend"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() =>
+                    patchIntegrations({ email: { ...integrations.email, provider: p } })
+                  }
+                  className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                    integrations.email.provider === p
+                      ? "bg-brand text-night"
+                      : "text-mist hover:text-soft"
+                  }`}
+                >
+                  {p === "smtp" ? "SMTP" : "Resend"}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {integrations.email.provider === "resend" ? (
+            <div className="sm:col-span-2">
+              <SecretField
+                label="Resend API key"
+                hint="From resend.com → API Keys. Starts with re_."
+                hasValue={integrations.email.hasResendApiKey}
+                source={integrations.email.resendApiKeySource}
+                value={resendKey}
+                onChange={setResendKey}
+                clearing={clearResendKey}
+                onClearingChange={setClearResendKey}
+              />
+            </div>
+          ) : (
+            <div className="sm:col-span-2">
+              <SecretField
+                label="SMTP URL"
+                hint="Format: smtps://user:password@host:465"
+                hasValue={integrations.email.hasSmtpUrl}
+                source={integrations.email.smtpUrlSource}
+                value={smtpUrl}
+                onChange={setSmtpUrl}
+                clearing={clearSmtpUrl}
+                onClearingChange={setClearSmtpUrl}
+              />
+            </div>
+          )}
+
           <Field
             label="From address"
             value={integrations.email.from}
@@ -379,9 +437,18 @@ export function IntegrationsTab() {
               }
             />
           </div>
-          <div className="sm:col-span-2">
-            <ActionButton type="submit" disabled={busy === "email"}>
+          <div className="flex flex-col gap-2 sm:col-span-2 sm:flex-row">
+            <ActionButton type="submit" disabled={busy === "email"} className="flex-1">
               {busy === "email" ? "Saving…" : "Save email settings"}
+            </ActionButton>
+            <ActionButton
+              type="button"
+              tone="quiet"
+              onClick={testEmail}
+              disabled={busy === "email-test" || !integrations.email.configured}
+              className="flex-1"
+            >
+              {busy === "email-test" ? "Sending…" : "Send test email"}
             </ActionButton>
           </div>
         </form>

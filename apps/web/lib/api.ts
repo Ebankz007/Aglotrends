@@ -1058,6 +1058,7 @@ export async function saveSiteContent(content: unknown): Promise<Record<string, 
 /* ------------------------------------------------------ admin: integrations */
 
 export type SecretSource = "database" | "environment" | "unset";
+export type EmailProvider = "smtp" | "resend";
 
 /**
  * The outbound API credentials, as the console sees them. Secrets are
@@ -1066,11 +1067,14 @@ export type SecretSource = "database" | "environment" | "unset";
  */
 export interface IntegrationsDto {
   email: {
+    provider: EmailProvider;
     enabled: boolean;
     from: string;
     replyTo: string;
     hasSmtpUrl: boolean;
     smtpUrlSource: SecretSource;
+    hasResendApiKey: boolean;
+    resendApiKeySource: SecretSource;
     configured: boolean;
   };
   whatsapp: {
@@ -1105,7 +1109,14 @@ export async function fetchIntegrations(): Promise<AdminIntegrationsDto> {
  * to clear (env fallback resumes), or omit to leave untouched.
  */
 export async function saveIntegrations(input: {
-  email?: { enabled?: boolean; from?: string; replyTo?: string; smtpUrl?: string | null };
+  email?: {
+    provider?: EmailProvider;
+    enabled?: boolean;
+    from?: string;
+    replyTo?: string;
+    smtpUrl?: string | null;
+    resendApiKey?: string | null;
+  };
   whatsapp?: { enabled?: boolean; phoneId?: string; token?: string | null };
   telegram?: { enabled?: boolean; botToken?: string | null };
 }): Promise<IntegrationsDto> {
@@ -1114,6 +1125,22 @@ export async function saveIntegrations(input: {
     body: JSON.stringify(input),
   });
   return data.integrations;
+}
+
+/**
+ * Send a test email to the signed-in superadmin. Exercises the real provider
+ * end to end — the console can confirm a key is set, but only a live send can
+ * confirm it works.
+ */
+export async function sendTestEmail(): Promise<{
+  ok: boolean;
+  provider: EmailProvider;
+  to: string;
+}> {
+  return request<{ ok: boolean; provider: EmailProvider; to: string }>(
+    "/admin/integrations/email/test",
+    { method: "POST" },
+  );
 }
 
 /* ------------------------------------------------------ admin: social links */

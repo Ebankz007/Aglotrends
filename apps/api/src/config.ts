@@ -45,6 +45,13 @@ const schema = z.object({
   SMTP_FROM: z.string().default('Aglotrends <no-reply@aglotrends.com>'),
   SMTP_REPLY_TO: z.string().optional().default(''),
 
+  // Which transport sends mail: 'smtp' (any relay — Mailgun, SMTP.com, …) or
+  // 'resend' (Resend's HTTP API). The console can override this per-deployment;
+  // the environment value is the fallback, matching every other integration.
+  EMAIL_PROVIDER: z.enum(['smtp', 'resend']).default('smtp'),
+  // Resend API key (re_…). Blank disables the Resend provider.
+  RESEND_API_KEY: z.string().optional().default(''),
+
   // Notification channels — blank disables the channel (fan-out no-ops safely).
   WHATSAPP_TOKEN: z.string().optional().default(''),
   WHATSAPP_PHONE_ID: z.string().optional().default(''),
@@ -125,10 +132,14 @@ if (config.NODE_ENV === 'production') {
     );
     process.exit(1);
   }
-  if (!mockRail && !config.SMTP_URL) {
+  const emailReady =
+    config.EMAIL_PROVIDER === 'resend' ? Boolean(config.RESEND_API_KEY) : Boolean(config.SMTP_URL);
+  if (!mockRail && !emailReady) {
     // eslint-disable-next-line no-console
     console.error(
-      'Refusing to boot in production without SMTP_URL. Format: smtps://user:password@host:465 (password percent-encoded).',
+      config.EMAIL_PROVIDER === 'resend'
+        ? 'Refusing to boot in production without RESEND_API_KEY (EMAIL_PROVIDER=resend).'
+        : 'Refusing to boot in production without SMTP_URL. Format: smtps://user:password@host:465 (password percent-encoded) — or set EMAIL_PROVIDER=resend with RESEND_API_KEY.',
     );
     process.exit(1);
   }

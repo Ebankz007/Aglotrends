@@ -326,10 +326,14 @@ export const INTEGRATIONS_KEY = 'integrations';
  * channel off makes the fan-out record SKIPPED, never FAILED — the same
  * distinction the delivery layer already draws for an unconfigured channel.
  */
+export type EmailProvider = 'smtp' | 'resend';
+
 export interface EmailIntegrationSettings {
+  /** '' = inherit from EMAIL_PROVIDER in the environment. */
+  provider: EmailProvider | '';
   enabled: boolean;
-  /** smtps://user:pass@host:465 — encrypted at rest. */
   smtpUrl: string;
+  resendApiKey: string;
   from: string;
   replyTo: string;
 }
@@ -354,7 +358,7 @@ export interface IntegrationsSettings {
 }
 
 const INTEGRATION_DEFAULTS: IntegrationsSettings = {
-  email: { enabled: true, smtpUrl: '', from: '', replyTo: '' },
+  email: { provider: '', enabled: true, smtpUrl: '', resendApiKey: '', from: '', replyTo: '' },
   whatsapp: { enabled: true, token: '', phoneId: '' },
   telegram: { enabled: true, botToken: '' },
 };
@@ -379,8 +383,10 @@ function reveal(stored: string, fallback: string): string {
 /* --- resolved forms, consumed by the delivery layer --- */
 
 export interface ResolvedEmailIntegration {
+  provider: EmailProvider;
   enabled: boolean;
   smtpUrl: string;
+  resendApiKey: string;
   from: string;
   replyTo: string;
 }
@@ -388,8 +394,10 @@ export interface ResolvedEmailIntegration {
 export async function resolveEmailIntegration(): Promise<ResolvedEmailIntegration> {
   const s = await storedIntegrations();
   return {
+    provider: s.email.provider || config.EMAIL_PROVIDER,
     enabled: s.email.enabled,
     smtpUrl: reveal(s.email.smtpUrl, config.SMTP_URL),
+    resendApiKey: reveal(s.email.resendApiKey, config.RESEND_API_KEY),
     from: s.email.from || config.SMTP_FROM,
     replyTo: s.email.replyTo || config.SMTP_REPLY_TO,
   };
@@ -427,11 +435,14 @@ export async function resolveTelegramIntegration(): Promise<ResolvedTelegramInte
 
 export interface IntegrationsView {
   email: {
+    provider: EmailProvider;
     enabled: boolean;
     from: string;
     replyTo: string;
     hasSmtpUrl: boolean;
     smtpUrlSource: SecretSource;
+    hasResendApiKey: boolean;
+    resendApiKeySource: SecretSource;
     configured: boolean;
   };
   whatsapp: {
@@ -456,19 +467,27 @@ export async function integrationsView(): Promise<IntegrationsView> {
   // Deliberately does NOT decrypt: the view only needs to know *whether* a
   // secret is set, so a rotated or missing key cannot break the console an
   // operator needs in order to fix it.
+  const provider = s.email.provider || config.EMAIL_PROVIDER;
   const hasSmtpUrl = Boolean(s.email.smtpUrl || config.SMTP_URL);
+  const hasResendApiKey = Boolean(s.email.resendApiKey || config.RESEND_API_KEY);
   const hasToken = Boolean(s.whatsapp.token || config.WHATSAPP_TOKEN);
   const hasBotToken = Boolean(s.telegram.botToken || config.TELEGRAM_BOT_TOKEN);
   const phoneId = s.whatsapp.phoneId || config.WHATSAPP_PHONE_ID;
+  // "Configured" means the SELECTED provider has its credential — an SMTP URL
+  // sitting unused while Resend is selected is not a working email channel.
+  const emailReady = provider === 'resend' ? hasResendApiKey : hasSmtpUrl;
 
   return {
     email: {
+      provider,
       enabled: s.email.enabled,
       from: s.email.from || config.SMTP_FROM,
       replyTo: s.email.replyTo || config.SMTP_REPLY_TO,
       hasSmtpUrl,
       smtpUrlSource: sourceOf(s.email.smtpUrl, config.SMTP_URL),
-      configured: s.email.enabled && hasSmtpUrl,
+      hasResendApiKey,
+      resendApiKeySource: sourceOf(s.email.resendApiKey, config.RESEND_API_KEY),
+      configured: s.email.enabled && emailReady,
     },
     whatsapp: {
       enabled: s.whatsapp.enabled,
@@ -488,7 +507,14 @@ export async function integrationsView(): Promise<IntegrationsView> {
 }
 
 export interface IntegrationsInput {
-  email?: { enabled?: boolean; from?: string; replyTo?: string; smtpUrl?: string | null };
+  email?: {
+    provider?: EmailProvider;
+    enabled?: boolean;
+    from?: string;
+    replyTo?: string;
+    smtpUrl?: string | null;
+    resendApiKey?: string | null;
+  };
   whatsapp?: { enabled?: boolean; phoneId?: string; token?: string | null };
   telegram?: { enabled?: boolean; botToken?: string | null };
 }
@@ -502,10 +528,14 @@ export async function saveIntegrations(input: IntegrationsInput): Promise<Integr
   const next = await storedIntegrations();
 
   if (input.email) {
+    if (input.email.provider !== undefined) next.email.provider = input.email.provider;
     if (input.email.enabled !== undefined) next.email.enabled = input.email.enabled;
     if (input.email.from !== undefined) next.email.from = input.email.from.trim();
     if (input.email.replyTo !== undefined) next.email.replyTo = input.email.replyTo.trim();
     if (input.email.smtpUrl !== undefined) next.email.smtpUrl = seal(input.email.smtpUrl);
+    if (input.email.resendApiKey !== undefined) {
+      next.email.resendApiKey = seal(input.email.resendApiKey);
+    }
   }
   if (input.whatsapp) {
     if (input.whatsapp.enabled !== undefined) next.whatsapp.enabled = input.whatsapp.enabled;
@@ -519,6 +549,7 @@ export async function saveIntegrations(input: IntegrationsInput): Promise<Integr
 
   if (encryptionAvailable()) {
     next.email.smtpUrl = upgrade(next.email.smtpUrl);
+    next.email.resendApiKey = upgrade(next.email.resendApiKey);
     next.whatsapp.token = upgrade(next.whatsapp.token);
     next.telegram.botToken = upgrade(next.telegram.botToken);
   }

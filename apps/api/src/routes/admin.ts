@@ -17,6 +17,7 @@ import { createSignal, publishSignal } from '../services/signals.js';
 import { recordProfitSettlement } from '../services/settlement.js';
 import { runRankEvaluation } from '../services/ranks.js';
 import { BROADCAST_AUDIENCES, dispatchBroadcast } from '../notifications/index.js';
+import { emailConfigured, sendEmail } from '../notifications/email.js';
 import {
   gatewaySettingsView,
   getPlatformSettings,
@@ -24,6 +25,7 @@ import {
   getSocialSettingsAdmin,
   integrationsView,
   platformFeeSettingsView,
+  resolveEmailIntegration,
   saveGatewaySettings,
   saveIntegrations,
   savePlatformFeeSettings,
@@ -887,11 +889,13 @@ adminRouter.get(
 const integrationsSchema = z.object({
   email: z
     .object({
+      provider: z.enum(['smtp', 'resend']).optional(),
       enabled: z.boolean().optional(),
       from: z.string().trim().max(200).optional(),
       replyTo: z.string().trim().max(200).optional(),
       // null clears the stored override (env fallback takes over); undefined leaves it.
       smtpUrl: z.string().trim().max(1000).nullable().optional(),
+      resendApiKey: z.string().trim().max(500).nullable().optional(),
     })
     .optional(),
   whatsapp: z
@@ -920,6 +924,48 @@ adminRouter.put(
       channels: Object.keys(body),
     });
     res.json({ integrations });
+  }),
+);
+
+/**
+ * Send a test email to the caller. The console can confirm a key is SET but
+ * never that it WORKS — this closes that gap by exercising the real provider
+ * (SMTP or Resend) end to end. SUPERADMIN-only, and it only ever mails the
+ * caller, so it cannot be turned into a spam cannon against members.
+ */
+adminRouter.post(
+  '/integrations/email/test',
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const cfg = await resolveEmailIntegration();
+    if (!emailConfigured(cfg)) {
+      throw ApiError.badRequest(
+        cfg.provider === 'resend'
+          ? 'No Resend API key is set — save one first.'
+          : 'No SMTP URL is set — save one first.',
+        'EMAIL_NOT_CONFIGURED',
+      );
+    }
+    const [me] = await db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.user!.id))
+      .limit(1);
+    if (!me?.email) {
+      throw ApiError.badRequest('Your account has no email address to send to.', 'NO_EMAIL');
+    }
+    await sendEmail(
+      me.email,
+      'Aglotrends test email',
+      'This is a test email from the Aglotrends console. If you are reading it, outbound email is working.',
+      '<p>This is a test email from the Aglotrends console. If you are reading it, <strong>outbound email is working</strong>.</p>',
+      cfg,
+    );
+    await audit(req.user!.id, 'settings.integrations.test', 'system', undefined, {
+      channel: 'email',
+      provider: cfg.provider,
+    });
+    res.json({ ok: true, provider: cfg.provider, to: me.email });
   }),
 );
 

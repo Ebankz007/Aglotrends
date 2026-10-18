@@ -6,10 +6,12 @@ import { resolveEmailIntegration, type ResolvedEmailIntegration } from '../servi
 export type { ResolvedEmailIntegration };
 
 /**
- * Outbound email — hardened Mailgun/SMTP transport.
+ * Outbound email — two transports behind one interface: SMTP (Mailgun and most
+ * providers are plain SMTP relays) and Resend's HTTP API. The provider is chosen
+ * per-deployment in the console; `sendEmail` dispatches on it.
  *
- * Ported from COPINEX's `services/email.ts` (Mailgun is just an SMTP relay:
- * smtp.mailgun.org / smtp.eu.mailgun.org). Three rules it enforces:
+ * The SMTP path is ported from COPINEX's `services/email.ts`. Three rules it
+ * enforces:
  *
  *  1. The URL is PARSED explicitly rather than handed to nodemailer as a
  *     string, so socket timeouts become first-class typed options and a
@@ -40,7 +42,10 @@ export async function emailConfig(): Promise<ResolvedEmailIntegration> {
 
 /** False = the channel is off; the fan-out records SKIPPED, never FAILED. */
 export function emailConfigured(cfg: ResolvedEmailIntegration): boolean {
-  return cfg.enabled && cfg.smtpUrl.trim().length > 0;
+  if (!cfg.enabled) return false;
+  return cfg.provider === 'resend'
+    ? cfg.resendApiKey.trim().length > 0
+    : cfg.smtpUrl.trim().length > 0;
 }
 
 function getTransporter(cfg: ResolvedEmailIntegration): Transporter | null {
@@ -98,12 +103,38 @@ export async function sendEmail(
   cfg?: ResolvedEmailIntegration,
 ): Promise<EmailResult> {
   const resolved = cfg ?? (await emailConfig());
-  const t = getTransporter(resolved);
-  if (!t) {
+  // The test suite NEVER sends real mail, whatever sits in .env — a suite that
+  // hit the live relay on every run would be slow, flaky, and would email fake
+  // addresses for real. Same rule as payment mock mode. This single guard
+  // covers BOTH transports, so adding a provider cannot open a live-send hole.
+  if (!emailConfigured(resolved) || config.NODE_ENV === 'test') {
     logger.info({ to, subject }, `[dev-mail] ${text}`);
     if (config.NODE_ENV === 'production') {
-      throw new Error('SMTP is not configured — cannot deliver email in production');
+      throw new Error('Email is not configured — cannot deliver email in production');
     }
+    return { dev: true, body: html ?? text };
+  }
+
+  if (resolved.provider === 'resend') {
+    return sendViaResend(resolved, to, subject, text, html);
+  }
+  return sendViaSmtp(resolved, to, subject, text, html);
+}
+
+/**
+ * SMTP delivery. The transport is pooled and rebuilt only when the URL changes.
+ */
+async function sendViaSmtp(
+  resolved: ResolvedEmailIntegration,
+  to: string,
+  subject: string,
+  text: string,
+  html?: string,
+): Promise<EmailResult> {
+  const t = getTransporter(resolved);
+  if (!t) {
+    // Defensive: sendEmail() already verified the channel is configured and
+    // that we are not in the test suite, so this is unreachable in practice.
     return { dev: true, body: html ?? text };
   }
 
@@ -160,19 +191,140 @@ function describeSmtpFailure(err: unknown, to: string): string {
   return `Email to ${to} was rejected by the mail server${detail}`;
 }
 
+/**
+ * Resend's HTTP API. A single POST — stateless, no pool to keep warm. Retries
+ * mirror the SMTP path: 429 and 5xx are transient; 4xx (bad key, unverified
+ * sending domain) is permanent and surfaced with a message that names the fix.
+ */
+async function sendViaResend(
+  cfg: ResolvedEmailIntegration,
+  to: string,
+  subject: string,
+  text: string,
+  html?: string,
+): Promise<EmailResult> {
+  const body = {
+    from: cfg.from,
+    to: [to],
+    subject,
+    text,
+    ...(html ? { html } : {}),
+    ...(cfg.replyTo ? { reply_to: cfg.replyTo } : {}),
+  };
+
+  const delays = [1000, 3000];
+  for (let attempt = 1; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cfg.resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      if (attempt > delays.length) {
+        throw new Error(
+          `Resend request failed sending to ${to} — check outbound access to api.resend.com`,
+          { cause: err },
+        );
+      }
+      logger.warn({ to, attempt }, 'Resend request failed — retrying');
+      await sleep(delays[attempt - 1]!);
+      continue;
+    }
+
+    if (res.ok) {
+      if (attempt > 1) logger.info({ to, attempt }, 'email delivered after retry');
+      return { dev: false, body: html ?? text };
+    }
+
+    const detail = await readErrorBody(res);
+    if (!isRetryableStatus(res.status) || attempt > delays.length) {
+      throw new Error(describeResendFailure(res.status, detail, to));
+    }
+    logger.warn({ to, attempt, status: res.status }, 'Resend rejected — retrying');
+    await sleep(delays[attempt - 1]!);
+  }
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+async function readErrorBody(res: Response): Promise<string> {
+  try {
+    return (await res.text()).slice(0, 200);
+  } catch {
+    return '';
+  }
+}
+
+export function describeResendFailure(status: number, detail: string, to: string): string {
+  const suffix = detail ? `: ${detail}` : '';
+  const d = detail.toLowerCase();
+
+  // Resend overloads 403: it means "domain not verified", "testing sender",
+  // AND "key inactive". The status alone cannot tell them apart — the message
+  // can. Guessing here sends an operator to rotate a working key while the
+  // real fault is a pending DNS record.
+  if (status === 403) {
+    if (d.includes('not verified') || d.includes('verify a domain')) {
+      return `Resend refused ${to} — the From domain is not verified yet. Add its DNS records in Resend, wait for verification, then retry${suffix}`;
+    }
+    if (d.includes('testing emails')) {
+      return `Resend refused ${to} — onboarding@resend.dev can only send to your own address. Verify a domain and use it as the From address${suffix}`;
+    }
+    if (d.includes('not active') || d.includes('suspended')) {
+      return `Resend rejected the API key sending to ${to} — create a new key in the Resend dashboard${suffix}`;
+    }
+    return `Resend returned 403 for ${to} — either the API key is inactive or the From domain is unverified${suffix}`;
+  }
+  if (status === 401) {
+    return `Resend rejected the API key sending to ${to} — check RESEND_API_KEY (it starts with re_)${suffix}`;
+  }
+  if (status === 422) {
+    return `Resend rejected the message sending to ${to} — check the From address and required fields${suffix}`;
+  }
+  if (status === 429) {
+    return `Resend rate limit hit sending to ${to} — 10 requests/second per team; retry later${suffix}`;
+  }
+  return `Resend returned HTTP ${status} sending to ${to}${suffix}`;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Boot-time SMTP check. Connect + authenticate BEFORE the API accepts traffic,
- * so a bad password or unreachable host is a loud crash at deploy time rather
- * than a silent black hole discovered by the first locked-out member.
+ * Boot-time email check. Authenticate BEFORE the API accepts traffic, so a bad
+ * key or unreachable host is a loud crash at deploy time rather than a silent
+ * black hole discovered by the first locked-out member.
  *
- * Returns true when there is nothing to check (no SMTP configured).
+ * Returns true when there is nothing to check (no provider configured).
  */
-export async function verifySmtpConnection(): Promise<boolean> {
-  const t = getTransporter(await emailConfig());
+export async function verifyEmailConnection(): Promise<boolean> {
+  const cfg = await emailConfig();
+  // The test suite never touches the network — same rule as sendEmail.
+  if (!emailConfigured(cfg) || config.NODE_ENV === 'test') return true;
+  if (cfg.provider === 'resend') {
+    // A cheap authenticated GET validates the key without sending mail.
+    const res = await fetch('https://api.resend.com/domains', {
+      headers: { Authorization: `Bearer ${cfg.resendApiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Resend verification failed (HTTP ${res.status}) — check RESEND_API_KEY and that a sending domain is verified`,
+      );
+    }
+    logger.info('Resend connection verified');
+    return true;
+  }
+  const t = getTransporter(cfg);
   if (!t) return true;
   await t.verify();
   logger.info('SMTP connection verified');

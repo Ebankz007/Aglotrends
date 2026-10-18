@@ -2,7 +2,7 @@ import { createApp } from './app.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { pool } from './db.js';
-import { verifySmtpConnection } from './notifications/email.js';
+import { verifyEmailConnection } from './notifications/email.js';
 
 const app = createApp();
 const server = app.listen(config.API_PORT, () => {
@@ -10,17 +10,17 @@ const server = app.listen(config.API_PORT, () => {
 });
 
 /**
- * Verify SMTP before we say we're ready. In production a dead relay is a hard
- * crash at boot; in development it's a loud warning, because a dev machine with
- * no outbound SMTP must still be able to run the API.
+ * Verify the email provider before we say we're ready. In production a dead
+ * relay is a hard crash at boot; in development it's a loud warning, because a
+ * dev machine with no outbound email must still be able to run the API.
  */
-void verifySmtpConnection().catch((err: unknown) => {
+void verifyEmailConnection().catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
   if (config.NODE_ENV === 'production') {
-    logger.fatal({ err: message }, 'SMTP verification failed — refusing to serve traffic');
+    logger.fatal({ err: message }, 'Email verification failed — refusing to serve traffic');
     process.exit(1);
   }
-  logger.warn({ err: message }, 'SMTP verification failed (non-fatal in development)');
+  logger.warn({ err: message }, 'Email verification failed (non-fatal in development)');
 });
 
 function shutdown(signal: string): void {

@@ -390,6 +390,9 @@ const signalSchema = z.object({
   takeProfit: z.string().optional(),
   timeframe: z.string().optional(),
   notes: z.string().optional(),
+  visibility: z.enum(['FREE', 'PREMIUM']).optional(),
+  chartImageUrl: z.string().optional(),
+  chartLink: z.string().optional(),
   publish: z.boolean().optional(),
 });
 

@@ -44,6 +44,9 @@ export function SignalsTab() {
   const [takeProfit, setTakeProfit] = useState("");
   const [timeframe, setTimeframe] = useState("");
   const [notes, setNotes] = useState("");
+  const [visibility, setVisibility] = useState<'FREE'|'PREMIUM'>('FREE');
+  const [chartImageUrl, setChartImageUrl] = useState("");
+  const [chartLink, setChartLink] = useState("");
   const [publish, setPublish] = useState(true);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -69,6 +72,9 @@ export function SignalsTab() {
         takeProfit: takeProfit.trim() || undefined,
         timeframe: timeframe.trim() || undefined,
         notes: notes.trim() || undefined,
+        visibility,
+        chartImageUrl: chartImageUrl.trim() || undefined,
+        chartLink: chartLink.trim() || undefined,
         publish,
       });
       setOk(publish ? "Signal created and published." : "Signal saved as draft.");
@@ -79,6 +85,9 @@ export function SignalsTab() {
       setTakeProfit("");
       setTimeframe("");
       setNotes("");
+      setVisibility('FREE');
+      setChartImageUrl("");
+      setChartLink("");
       reload();
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : "Could not create the signal.");
@@ -121,6 +130,15 @@ export function SignalsTab() {
           <Field label="Entry (optional)" value={entryPrice} onChange={setEntryPrice} placeholder="1.0842" />
           <Field label="Stop loss (optional)" value={stopLoss} onChange={setStopLoss} placeholder="1.0800" />
           <Field label="Take profit (optional)" value={takeProfit} onChange={setTakeProfit} placeholder="1.0950" />
+          <label className="block sm:col-span-2">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] text-mist">Visibility</span>
+            <select className={selectClass} value={visibility} onChange={(e) => setVisibility(e.target.value as 'FREE'|'PREMIUM')}>
+              <option value="FREE">FREE</option>
+              <option value="PREMIUM">PREMIUM</option>
+            </select>
+          </label>
+          <Field label="Chart image URL (optional)" value={chartImageUrl} onChange={setChartImageUrl} placeholder="https://..." />
+          <Field label="Chart link (optional)" value={chartLink} onChange={setChartLink} placeholder="https://tradingview.com/..." />
           <div className="sm:col-span-2">
             <Field label="Notes (optional)" value={notes} onChange={setNotes} placeholder="Rationale, context" />
           </div>

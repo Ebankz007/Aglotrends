@@ -13,6 +13,9 @@ export interface CreateSignalInput {
   takeProfit?: string;
   timeframe?: string;
   notes?: string;
+  visibility?: 'FREE' | 'PREMIUM';
+  chartImageUrl?: string;
+  chartLink?: string;
   publish?: boolean;
 }
 
@@ -29,6 +32,9 @@ export async function createSignal(input: CreateSignalInput) {
       takeProfit: input.takeProfit ?? null,
       timeframe: input.timeframe ?? null,
       notes: input.notes ?? null,
+      visibility: input.visibility ?? 'FREE',
+      chartImageUrl: input.chartImageUrl ?? null,
+      chartLink: input.chartLink ?? null,
       status: input.publish ? 'PUBLISHED' : 'DRAFT',
       publishedAt: input.publish ? new Date() : null,
     })

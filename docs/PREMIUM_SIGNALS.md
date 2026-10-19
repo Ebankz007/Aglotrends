@@ -175,23 +175,19 @@ Resolve channel config once per broadcast, not per recipient (existing rule).
 
 ## 8. Open decisions — these block the build
 
-1. **Split.** Is 30/30/40 (referral pool / company / provider) final? And does
-   the referral-pool 30% go to the **direct** referrer only, or **compress up
-   the tree** the way the registration bonus does?
-2. **Provider payout timing.** Does the provider's 40% vest at purchase, or at
-   period end? On refund or chargeback, is it clawed back — and from whom?
-3. **Referral pool distribution.** The 30% is a *pool*. Split pro-rata by active
-   referrals? Equal? Direct referrers only? Is there a minimum threshold below
-   which the pool is not distributed?
-4. **Plan economics.** Are $50 / $150 / $250 (Monthly / 6-Month / Yearly) final?
-   Does the platform set prices, or does each provider set their own?
-5. **Access model.** Is `PREMIUM` fully hidden, or a teaser (title and instrument
-   visible, levels locked)? This decides the shape of the locked payload in §4.
-6. **Expiry behaviour.** On lapse: hard cut, grace period, or auto-renew? What
-   happens to signals published *during* a lapse — permanently missed, or
-   unlocked retroactively on renewal?
-7. **Free tier definition.** How many free signals, and from whom? If free is
-   good enough, nobody upgrades; if free is hollow, the product looks empty.
+**DECISIONS RECORDED 2026-10-19**
+
+1. **Split.** 30/30/40 is final. Referral-pool 30% **compresses up the tree** the way the registration bonus does.
+2. **Provider payout timing.** Provider 40% vests **at purchase**. No refunds or chargebacks. Signal performance is shown before subscribe. Provider 40% is credited to his client wallet.
+3. **Referral pool distribution.** TBD — need distribution rule: pro-rata by active referrals? Equal? Direct referrers only? Minimum threshold?
+4. **Plan economics.** Platform does **not** set prices. Each provider sets their own price for Monthly / 6-Month / Yearly.
+5. **Access model.** Teaser: title and instrument visible, levels locked.
+6. **Expiry behaviour.** Unlocked retroactively on renewal. Lapse behaviour: TBD — hard cut / grace / auto-renew?
+7. **Free tier definition.** No free signals by default. Provider can opt to make their signal service free.
+
+**Open items remaining:**
+- 3. Referral pool distribution rule + minimum threshold
+- 6. Lapse behaviour: hard cut / grace period / auto-renew?
 
 ---
 

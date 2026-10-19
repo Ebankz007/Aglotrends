@@ -57,17 +57,21 @@ mutates a balance without a ledger row is a bug, not an optimisation.
 
 Additive migration only. Nothing here drops or rewrites a column.
 
-### 3a. `signals.visibility`
+### 3a. `signals.visibility` + chart assets
 
 ```ts
 export const signalVisibilityEnum = pgEnum('signal_visibility', ['FREE', 'PREMIUM']);
 
 // added to the existing signals table
 visibility: signalVisibilityEnum('visibility').notNull().default('FREE'),
+chartImageUrl: text, // optional upload URL for chart screenshot / setup visual
+chartLink: text,     // optional external chart link (TradingView, etc.)
 ```
 
 `default('FREE')` means every existing row keeps working and every existing
 reader keeps seeing what it saw. The migration is safe on live data.
+
+Chart assets are optional. When present they are shown in the virtual view of the signal setup. Upload is provider-only, via admin UI.
 
 ### 3b. `subscription_plans`
 
@@ -152,9 +156,10 @@ an activated-but-unpaid member is a loss.
 ## 6. Web surface
 
 - `/signals` — `PREMIUM` rows render as locked cards (title + instrument visible,
-  levels replaced by a lock affordance and an upgrade CTA).
+  levels replaced by a lock affordance and an upgrade CTA). Teaser shows chart visual if provider uploaded `chartImageUrl` / `chartLink`.
 - `/subscriptions` — plan list, current status, expiry date, renew.
 - Admin → Subscriptions — plans, subscribers, revenue split view.
+- Admin → Signals — provider can upload chart image and set chart link for virtual view of signal setup.
 
 Palette and components follow the existing dark-navy system
 (`apps/web/app/globals.css`). No new design language.

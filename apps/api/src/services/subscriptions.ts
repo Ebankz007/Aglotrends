@@ -39,6 +39,16 @@ export async function createUserSubscription(input: {
       balanceAfterCents: wallet.balanceCents - input.priceCents,
       description: `Subscription payment to provider ${input.providerId}`,
     });
+  } else if (input.paymentSource === 'GATEWAY') {
+    // Create a pending payment record for gateway processing
+    await db.insert(schema.payments).values({
+      userId: input.userId,
+      amountCents: input.priceCents,
+      currency: input.currency ?? 'USD',
+      purpose: 'DEPOSIT',
+      status: 'PENDING',
+      reference: `sub-${input.providerId}-${Date.now()}`,
+    });
   }
 
   const [sub] = await db.insert(schema.userSubscriptions).values({

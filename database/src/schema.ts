@@ -41,6 +41,8 @@ export const brokerAccountStatusEnum = pgEnum('broker_account_status', [
 ]);
 export const signalDirectionEnum = pgEnum('signal_direction', ['BUY', 'SELL', 'NEUTRAL']);
 export const signalStatusEnum = pgEnum('signal_status', ['DRAFT', 'PUBLISHED', 'CLOSED']);
+export const signalVisibilityEnum = pgEnum('signal_visibility', ['FREE', 'PREMIUM']);
+export const subscriptionStatusEnum = pgEnum('subscription_status', ['ACTIVE', 'EXPIRED', 'CANCELLED']);
 export const notificationChannelEnum = pgEnum('notification_channel', [
   'IN_APP',
   'EMAIL',
@@ -254,7 +256,38 @@ export const signals = pgTable('signals', {
   timeframe: text('timeframe'),
   notes: text('notes'),
   status: signalStatusEnum('status').notNull().default('DRAFT'),
+  visibility: signalVisibilityEnum('visibility').notNull().default('FREE'),
+  chartImageUrl: text('chart_image_url'),
+  chartLink: text('chart_link'),
   publishedAt: timestamp('published_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Premium Signals subscription plans — provider-owned pricing. */
+export const subscriptionPlans = pgTable('subscription_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  providerId: uuid('provider_id').notNull().references(() => users.id),
+  name: text('name').notNull(),
+  interval: text('interval').notNull(), // 'MONTHLY' | '6MONTH' | 'YEARLY'
+  priceCents: integer('price_cents').notNull(),
+  currency: text('currency').notNull().default('USD'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** User subscriptions to a provider's Premium Signals. */
+export const userSubscriptions = pgTable('user_subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  providerId: uuid('provider_id').notNull().references(() => users.id),
+  planId: uuid('plan_id').references(() => subscriptionPlans.id),
+  priceCents: integer('price_cents').notNull(),
+  currency: text('currency').notNull().default('USD'),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  status: subscriptionStatusEnum('status').notNull().default('ACTIVE'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -184,15 +184,11 @@ Resolve channel config once per broadcast, not per recipient (existing rule).
 
 1. **Split.** 30/30/40 is final. Referral-pool 30% **compresses up the tree** the way the registration bonus does.
 2. **Provider payout timing.** Provider 40% vests **at purchase**. No refunds or chargebacks. Signal performance is shown before subscribe. Provider 40% is credited to his client wallet.
-3. **Referral pool distribution.** TBD — need distribution rule: pro-rata by active referrals? Equal? Direct referrers only? Minimum threshold?
+3. **Referral pool distribution.** Depth-weighted pro-rata by weighted active subscriptions. Depth weights: 100% direct, 50% level-2, 25% level-3, 0 beyond. Payout floor $10, rolls to next period. Paid monthly.
 4. **Plan economics.** Platform does **not** set prices. Each provider sets their own price for Monthly / 6-Month / Yearly.
 5. **Access model.** Teaser: title and instrument visible, levels locked.
-6. **Expiry behaviour.** Unlocked retroactively on renewal. Lapse behaviour: TBD — hard cut / grace / auto-renew?
+6. **Expiry behaviour.** 7-day grace on expiry: read existing PREMIUM signals, no new broadcasts. Hard cut after grace. No auto-renew by default. Unlocked retroactively on renewal.
 7. **Free tier definition.** No free signals by default. Provider can opt to make their signal service free.
-
-**Open items remaining:**
-- 3. Referral pool distribution rule + minimum threshold
-- 6. Lapse behaviour: hard cut / grace period / auto-renew?
 
 ---
 

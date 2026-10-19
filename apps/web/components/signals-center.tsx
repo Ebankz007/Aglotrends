@@ -19,8 +19,8 @@ export function SignalsCenter() {
   async function onSubscribe(providerId: string) {
     try {
       setSubmitting(providerId);
-      // For demo, create a default monthly subscription at $50
-      await createUserSubscription({ providerId, priceCents: 5000, interval: 'MONTHLY' });
+      const source = confirm('Pay from wallet? Cancel to use payment gateway.') ? 'WALLET' : 'GATEWAY';
+      await createUserSubscription({ providerId, priceCents: 5000, interval: 'MONTHLY', paymentSource: source });
       alert('Subscription created. Refresh to view premium signals.');
       window.location.reload();
     } catch (e) {

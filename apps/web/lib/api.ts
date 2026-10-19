@@ -807,7 +807,7 @@ export async function updateSubscriptionPlan(id: string, input: Partial<{ provid
   return data.plan;
 }
 
-export async function createUserSubscription(input: { providerId: string; planId?: string; priceCents: number; interval: 'MONTHLY'|'6MONTH'|'YEARLY'; currency?: string; }) {
+export async function createUserSubscription(input: { providerId: string; planId?: string; priceCents: number; interval: 'MONTHLY'|'6MONTH'|'YEARLY'; currency?: string; paymentSource?: 'WALLET'|'GATEWAY'; }) {
   const data = await request<{ subscription: any }>('/subscriptions/create', { method: 'POST', body: JSON.stringify(input) });
   return data.subscription;
 }

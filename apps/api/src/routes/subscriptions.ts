@@ -13,6 +13,7 @@ const createSchema = z.object({
   priceCents: z.number().int().positive(),
   interval: z.enum(['MONTHLY','6MONTH','YEARLY']),
   currency: z.string().default('USD'),
+  paymentSource: z.enum(['WALLET','GATEWAY']).optional(),
 });
 
 subscriptionsRouter.post('/create', asyncHandler(async (req, res) => {
@@ -25,6 +26,7 @@ subscriptionsRouter.post('/create', asyncHandler(async (req, res) => {
     priceCents: body.priceCents,
     currency: body.currency,
     interval: body.interval,
+    paymentSource: body.paymentSource,
   });
   res.status(201).json({ subscription: sub });
 }));

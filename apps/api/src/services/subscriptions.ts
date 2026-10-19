@@ -10,6 +10,7 @@ export async function createUserSubscription(input: {
   currency?: string;
   interval: 'MONTHLY' | '6MONTH' | 'YEARLY';
   startsAt?: Date;
+  paymentSource?: 'WALLET' | 'GATEWAY';
 }) {
   const startsAt = input.startsAt ?? new Date();
   const expiresAt = new Date(startsAt);
@@ -23,6 +24,21 @@ export async function createUserSubscription(input: {
     case 'YEARLY':
       expiresAt.setFullYear(expiresAt.getFullYear() + 1);
       break;
+  }
+
+  if (input.paymentSource === 'WALLET') {
+    const [wallet] = await db.select().from(schema.wallets).where(eq(schema.wallets.userId, input.userId));
+    if (!wallet || wallet.balanceCents < input.priceCents) {
+      throw ApiError.badRequest('Insufficient wallet balance');
+    }
+    await db.update(schema.wallets).set({ balanceCents: wallet.balanceCents - input.priceCents, updatedAt: new Date() }).where(eq(schema.wallets.id, wallet.id));
+    await db.insert(schema.ledgerEntries).values({
+      userId: input.userId,
+      type: 'SUBSCRIPTION_PAYMENT',
+      amountCents: -input.priceCents,
+      balanceAfterCents: wallet.balanceCents - input.priceCents,
+      description: `Subscription payment to provider ${input.providerId}`,
+    });
   }
 
   const [sub] = await db.insert(schema.userSubscriptions).values({

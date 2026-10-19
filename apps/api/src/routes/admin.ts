@@ -426,6 +426,17 @@ adminRouter.patch(
   }),
 );
 
+adminRouter.post(
+  '/signals/:id/upload-chart',
+  asyncHandler(async (req, res) => {
+    const { chartImageUrl, chartLink } = req.body;
+    if (!chartImageUrl) throw ApiError.badRequest('chartImageUrl required');
+    const signal = await updateSignal(req.params.id!, { chartImageUrl, chartLink });
+    await audit(req.user!.id, 'signal.chart.upload', 'signal', signal.id);
+    res.json({ signal });
+  }),
+);
+
 /* ----------------------------------------------------------- settlements */
 
 adminRouter.get(

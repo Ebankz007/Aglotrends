@@ -13,7 +13,8 @@ import {
   normalizePermissionMap,
 } from '../lib/permissions.js';
 import { audit } from '../services/audit.js';
-import { createSignal, publishSignal } from '../services/signals.js';
+import { createSignal, publishSignal, updateSignal } from '../services/signals.js';
+import { createSubscriptionPlan, listSubscriptionPlans, updateSubscriptionPlan } from '../services/subscriptionPlans.js';
 import { recordProfitSettlement } from '../services/settlement.js';
 import { runRankEvaluation } from '../services/ranks.js';
 import { BROADCAST_AUDIENCES, dispatchBroadcast } from '../notifications/index.js';
@@ -1191,3 +1192,33 @@ adminRouter.get(
     res.json({ entries: rows });
   }),
 );
+
+/* --------------------------------------------------- subscription plans */
+
+const planSchema = z.object({
+  providerId: z.string().uuid(),
+  name: z.string().min(1),
+  interval: z.enum(['MONTHLY','6MONTH','YEARLY']),
+  priceCents: z.number().int().positive(),
+  currency: z.string().default('USD'),
+  isActive: z.boolean().optional(),
+});
+
+adminRouter.get('/subscription-plans', asyncHandler(async (_req, res) => {
+  const plans = await listSubscriptionPlans();
+  res.json({ plans });
+}));
+
+adminRouter.post('/subscription-plans', asyncHandler(async (req, res) => {
+  const body = planSchema.parse(req.body);
+  const plan = await createSubscriptionPlan(body);
+  await audit(req.user!.id, 'plan.create', 'subscription_plan', plan.id);
+  res.status(201).json({ plan });
+}));
+
+adminRouter.patch('/subscription-plans/:id', asyncHandler(async (req, res) => {
+  const body = planSchema.partial().parse(req.body);
+  const plan = await updateSubscriptionPlan(req.params.id!, body);
+  await audit(req.user!.id, 'plan.update', 'subscription_plan', plan.id);
+  res.json({ plan });
+}));

@@ -781,6 +781,32 @@ export async function publishSignal(id: string): Promise<SignalDto> {
   return data.signal;
 }
 
+export type SubscriptionPlanDto = {
+  id: string;
+  providerId: string;
+  name: string;
+  interval: 'MONTHLY'|'6MONTH'|'YEARLY';
+  priceCents: number;
+  currency: string;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export async function fetchSubscriptionPlans(): Promise<SubscriptionPlanDto[]> {
+  const data = await request<{ plans: SubscriptionPlanDto[] }>('/admin/subscription-plans');
+  return data.plans;
+}
+
+export async function createSubscriptionPlan(input: { providerId: string; name: string; interval: 'MONTHLY'|'6MONTH'|'YEARLY'; priceCents: number; currency?: string; isActive?: boolean; }): Promise<SubscriptionPlanDto> {
+  const data = await request<{ plan: SubscriptionPlanDto }>('/admin/subscription-plans', { method: 'POST', body: JSON.stringify(input) });
+  return data.plan;
+}
+
+export async function updateSubscriptionPlan(id: string, input: Partial<{ providerId: string; name: string; interval: 'MONTHLY'|'6MONTH'|'YEARLY'; priceCents: number; currency: string; isActive: boolean; }>): Promise<SubscriptionPlanDto> {
+  const data = await request<{ plan: SubscriptionPlanDto }>(`/admin/subscription-plans/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+  return data.plan;
+}
+
 export async function fetchAdminSettlements(): Promise<SettlementDto[]> {
   const data = await request<{ settlements: SettlementDto[] }>("/admin/settlements");
   return data.settlements;

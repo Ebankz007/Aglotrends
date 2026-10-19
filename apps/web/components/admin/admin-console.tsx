@@ -9,6 +9,7 @@ import { MembersTab } from "@/components/admin/members-tab";
 import { StaffTab } from "@/components/admin/staff-tab";
 import { BrokersTab } from "@/components/admin/brokers-tab";
 import { SignalsTab } from "@/components/admin/signals-tab";
+import { SubscriptionPlansTab } from "@/components/admin/subscription-plans-tab";
 import { BroadcastTab } from "@/components/admin/broadcast-tab";
 import { ContentTab } from "@/components/admin/content-tab";
 import { SocialTab } from "@/components/admin/social-tab";
@@ -34,6 +35,7 @@ const TABS = [
   { id: "staff", label: "Staff", area: "STAFF", superAdminOnly: true },
   { id: "brokers", label: "Brokers", area: "BROKERS", superAdminOnly: false },
   { id: "signals", label: "Signals", area: "SIGNALS", superAdminOnly: false },
+  { id: "subscription-plans", label: "Subscription Plans", area: "SIGNALS", superAdminOnly: false },
   { id: "broadcast", label: "Broadcast", area: "CONTENT", superAdminOnly: false },
   { id: "content", label: "Content", area: "CONTENT", superAdminOnly: true },
   { id: "social", label: "Social", area: "CONTENT", superAdminOnly: false },
@@ -147,6 +149,7 @@ export function AdminConsole() {
       {active === "staff" && <StaffTab />}
       {active === "brokers" && <BrokersTab />}
       {active === "signals" && <SignalsTab />}
+      {active === "subscription-plans" && <SubscriptionPlansTab />}
       {active === "broadcast" && <BroadcastTab />}
       {active === "content" && <ContentTab />}
       {active === "social" && <SocialTab />}

@@ -8,11 +8,34 @@ import { requireActiveMember, requireAuth } from '../lib/auth.js';
 export const signalsRouter = Router();
 signalsRouter.use(requireAuth, requireActiveMember);
 
+const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function getProviderAccess(userId: string, providerId: string) {
+  const now = new Date();
+  const subs = await db
+    .select()
+    .from(schema.userSubscriptions)
+    .where(
+      and(
+        eq(schema.userSubscriptions.userId, userId),
+        eq(schema.userSubscriptions.providerId, providerId),
+        eq(schema.userSubscriptions.status, 'ACTIVE'),
+      ),
+    )
+    .orderBy(desc(schema.userSubscriptions.expiresAt));
+  if (subs.length === 0) return { hasAccess: false, inGrace: false, expiresAt: null };
+  const latest = subs[0];
+  const expiresAt = new Date(latest.expiresAt);
+  if (expiresAt > now) return { hasAccess: true, inGrace: false, expiresAt };
+  const graceUntil = new Date(expiresAt.getTime() + GRACE_MS);
+  if (graceUntil >= now) return { hasAccess: false, inGrace: true, expiresAt };
+  return { hasAccess: false, inGrace: false, expiresAt };
+}
+
 signalsRouter.get(
   '/',
   asyncHandler(async (req, res) => {
     const userId = (req as any).user?.id;
-    // Fetch published signals
     const published = await db
       .select()
       .from(schema.signals)
@@ -21,37 +44,25 @@ signalsRouter.get(
       .limit(200);
 
     if (!userId) {
-      // Unauthenticated fallback: only FREE
       const free = published.filter(s => s.visibility === 'FREE');
       return res.json({ signals: free.slice(0, 100) });
     }
 
-    // Determine providers user is subscribed to
     const now = new Date();
-    const subs = await db
-      .select({ providerId: schema.userSubscriptions.providerId })
-      .from(schema.userSubscriptions)
-      .where(
-        and(
-          eq(schema.userSubscriptions.userId, userId),
-          eq(schema.userSubscriptions.status, 'ACTIVE'),
-          gt(schema.userSubscriptions.expiresAt, now),
-        ),
-      );
-
-    const allowedProviderIds = new Set(subs.map(s => s.providerId));
-
-    const filtered = published.filter(s => {
-      if (s.visibility === 'FREE') return true;
-      if (s.visibility === 'PREMIUM' && s.authorId && allowedProviderIds.has(s.authorId)) {
-        return true;
-      }
-      return false;
-    });
-
-    // For PREMIUM signals without access, return teaser
-    const signals = filtered.map(s => {
-      if (s.visibility === 'PREMIUM' && s.authorId && !allowedProviderIds.has(s.authorId)) {
+    const signals = await Promise.all(
+      published.map(async (s) => {
+        if (s.visibility === 'FREE') return s;
+        if (!s.authorId) return { ...s, teaser: true };
+        const access = await getProviderAccess(userId, s.authorId);
+        if (access.hasAccess) return s;
+        if (access.inGrace) {
+          const publishedAt = s.publishedAt ? new Date(s.publishedAt) : null;
+          const expiresAt = access.expiresAt ? new Date(access.expiresAt) : null;
+          if (publishedAt && expiresAt && publishedAt <= expiresAt) {
+            return s; // existing signal readable during grace
+          }
+        }
+        // teaser
         return {
           id: s.id,
           title: s.title,
@@ -61,9 +72,8 @@ signalsRouter.get(
           publishedAt: s.publishedAt,
           teaser: true,
         };
-      }
-      return s;
-    });
+      })
+    );
 
     res.json({ signals: signals.slice(0, 100) });
   }),
@@ -83,21 +93,18 @@ signalsRouter.get(
       if (!userId) {
         return res.json({ signal: { id: signal.id, title: signal.title, instrument: signal.instrument, visibility: 'PREMIUM', teaser: true } });
       }
-      const now = new Date();
-      const [sub] = await db
-        .select()
-        .from(schema.userSubscriptions)
-        .where(
-          and(
-            eq(schema.userSubscriptions.userId, userId),
-            eq(schema.userSubscriptions.providerId, signal.authorId),
-            eq(schema.userSubscriptions.status, 'ACTIVE'),
-            gt(schema.userSubscriptions.expiresAt, now),
-          ),
-        );
-      if (!sub) {
-        return res.json({ signal: { id: signal.id, title: signal.title, instrument: signal.instrument, visibility: 'PREMIUM', teaser: true } });
+      const access = await getProviderAccess(userId, signal.authorId);
+      if (access.hasAccess) {
+        return res.json({ signal });
       }
+      if (access.inGrace) {
+        const publishedAt = signal.publishedAt ? new Date(signal.publishedAt) : null;
+        const expiresAt = access.expiresAt ? new Date(access.expiresAt) : null;
+        if (publishedAt && expiresAt && publishedAt <= expiresAt) {
+          return res.json({ signal });
+        }
+      }
+      return res.json({ signal: { id: signal.id, title: signal.title, instrument: signal.instrument, visibility: 'PREMIUM', teaser: true } });
     }
 
     res.json({ signal });

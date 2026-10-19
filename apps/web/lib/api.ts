@@ -807,6 +807,11 @@ export async function updateSubscriptionPlan(id: string, input: Partial<{ provid
   return data.plan;
 }
 
+export async function createUserSubscription(input: { providerId: string; planId?: string; priceCents: number; interval: 'MONTHLY'|'6MONTH'|'YEARLY'; currency?: string; }) {
+  const data = await request<{ subscription: any }>('/subscriptions/create', { method: 'POST', body: JSON.stringify(input) });
+  return data.subscription;
+}
+
 export async function fetchAdminSettlements(): Promise<SettlementDto[]> {
   const data = await request<{ settlements: SettlementDto[] }>("/admin/settlements");
   return data.settlements;

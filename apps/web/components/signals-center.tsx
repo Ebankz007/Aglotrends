@@ -2,8 +2,9 @@
 
 import { Badge, Empty, Note, Panel, PortalPage } from "@/components/portal-ui";
 import { useAsync } from "@/lib/hooks";
-import { fetchSignals } from "@/lib/api";
+import { createUserSubscription, fetchSignals } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { useState } from "react";
 
 function dirTone(d: string): "ok" | "danger" | "neutral" {
   return d === "BUY" ? "ok" : d === "SELL" ? "danger" : "neutral";
@@ -11,8 +12,23 @@ function dirTone(d: string): "ok" | "danger" | "neutral" {
 
 export function SignalsCenter() {
   const { data, error, loading } = useAsync(fetchSignals);
+  const [submitting, setSubmitting] = useState<string | null>(null);
 
   const isTeaser = (s: any) => s.teaser === true || s.visibility === 'PREMIUM' && !s.entryPrice;
+
+  async function onSubscribe(providerId: string) {
+    try {
+      setSubmitting(providerId);
+      // For demo, create a default monthly subscription at $50
+      await createUserSubscription({ providerId, priceCents: 5000, interval: 'MONTHLY' });
+      alert('Subscription created. Refresh to view premium signals.');
+      window.location.reload();
+    } catch (e) {
+      alert('Could not subscribe');
+    } finally {
+      setSubmitting(null);
+    }
+  }
 
   return (
     <PortalPage title="Signals">
@@ -40,6 +56,9 @@ export function SignalsCenter() {
                 <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
                   <p className="font-semibold text-amber-200">Premium signal locked</p>
                   <p className="mt-1 text-mist">Subscribe to this provider to view entry, stop, target and notes.</p>
+                  <button onClick={() => s.authorId && onSubscribe(s.authorId)} disabled={submitting===s.authorId} className="mt-3 rounded-full bg-brand px-4 py-2 text-sm font-bold text-night disabled:opacity-50">
+                    {submitting===s.authorId ? 'Subscribing…' : 'Subscribe for $50/mo'}
+                  </button>
                 </div>
               ) : (
                 <>

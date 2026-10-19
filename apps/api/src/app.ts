@@ -13,6 +13,7 @@ import { walletRouter } from './routes/wallet.js';
 import { signalsRouter } from './routes/signals.js';
 import { brokersRouter } from './routes/brokers.js';
 import { adminRouter } from './routes/admin.js';
+import { subscriptionsRouter } from './routes/subscriptions.js';
 import { paymentsRouter } from './routes/payments.js';
 import { contentRouter } from './routes/content.js';
 import { kycRouter } from './routes/kyc.js';
@@ -41,6 +42,7 @@ export function createApp(): express.Express {
   app.use('/api/wallet', walletRouter);
   app.use('/api/signals', signalsRouter);
   app.use('/api/brokers', brokersRouter);
+  app.use('/api/subscriptions', subscriptionsRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/admin', adminContentRouter);
   app.use('/api/content', contentRouter);

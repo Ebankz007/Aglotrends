@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, and, gt, lte } from 'drizzle-orm';
 import { db, schema } from '../db.js';
 import { logger } from '../logger.js';
 import { emailConfig, emailConfigured, sendEmail } from './email.js';
@@ -48,8 +48,6 @@ async function recordDelivery(
  */
 export async function dispatchSignalNotifications(signal: Signal): Promise<void> {
   const body = formatSignal(signal);
-  // Resolve the channel configs ONCE for the whole run, not once per member —
-  // a signal to 10k members must not be 10k `app_config` reads.
   const [emailCfg, whatsappCfg, telegramCfg] = await Promise.all([
     emailConfig(),
     whatsappConfig(),
@@ -59,18 +57,75 @@ export async function dispatchSignalNotifications(signal: Signal): Promise<void>
   const whatsappReady = whatsappConfigured(whatsappCfg);
   const telegramReady = telegramConfigured(telegramCfg);
 
-  const members = await db
-    .select({ id: schema.users.id, email: schema.users.email })
-    .from(schema.users)
-    .where(eq(schema.users.status, 'ACTIVE'));
+  const now = new Date();
+  const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
-  for (const m of members) {
+  let targetMembers: Array<{ id: string; email: string; inGrace?: boolean }>;
+
+  if (signal.visibility === 'FREE') {
+    const members = await db
+      .select({ id: schema.users.id, email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.status, 'ACTIVE'));
+    targetMembers = members;
+  } else if (signal.visibility === 'PREMIUM' && signal.authorId) {
+    // Active subscribers
+    const activeSubs = await db
+      .select({
+        userId: schema.userSubscriptions.userId,
+        email: schema.users.email,
+      })
+      .from(schema.userSubscriptions)
+      .innerJoin(schema.users, eq(schema.users.id, schema.userSubscriptions.userId))
+      .where(
+        and(
+          eq(schema.userSubscriptions.providerId, signal.authorId),
+          eq(schema.userSubscriptions.status, 'ACTIVE'),
+          gt(schema.userSubscriptions.expiresAt, now),
+        )
+      );
+    // Grace users
+    const graceSubs = await db
+      .select({
+        userId: schema.userSubscriptions.userId,
+        email: schema.users.email,
+        expiresAt: schema.userSubscriptions.expiresAt,
+      })
+      .from(schema.userSubscriptions)
+      .innerJoin(schema.users, eq(schema.users.id, schema.userSubscriptions.userId))
+      .where(
+        and(
+          eq(schema.userSubscriptions.providerId, signal.authorId),
+          eq(schema.userSubscriptions.status, 'ACTIVE'),
+          lte(schema.userSubscriptions.expiresAt, now),
+        )
+      );
+    const graceMembers = graceSubs.filter(s => {
+      const graceUntil = new Date(new Date(s.expiresAt).getTime() + GRACE_MS);
+      return graceUntil >= now;
+    }).map(s => ({ id: s.userId, email: s.email, inGrace: true }));
+    targetMembers = [
+      ...activeSubs.map(s => ({ id: s.userId, email: s.email })),
+      ...graceMembers,
+    ];
+  } else {
+    targetMembers = [];
+  }
+
+  for (const m of targetMembers) {
+    const isGrace = !!m.inGrace;
+    const notifTitle = isGrace ? `Premium signal from ${signal.title}` : signal.title;
+    const notifBody = isGrace
+      ? `New premium signal "${signal.title}" is available. Your subscription expired – renew to view new signals. You have 7-day grace access to previous signals.`
+      : body;
+    const notifLink = isGrace ? `/signals/subscribe` : `/signals/${signal.id}`;
+
     await db.insert(schema.notifications).values({
       userId: m.id,
       type: 'SIGNAL',
-      title: signal.title,
-      body,
-      link: `/signals/${signal.id}`,
+      title: notifTitle,
+      body: notifBody,
+      link: notifLink,
     });
     await recordDelivery(signal.id, m.id, 'IN_APP', 'SENT');
 
@@ -83,17 +138,17 @@ export async function dispatchSignalNotifications(signal: Signal): Promise<void>
       {
         channel: 'EMAIL',
         enabled: emailReady && (prefs?.emailEnabled ?? true),
-        run: () => sendEmail(m.email, signal.title, body, undefined, emailCfg),
+        run: () => sendEmail(m.email, notifTitle, notifBody, undefined, emailCfg),
       },
       {
         channel: 'WHATSAPP',
         enabled: whatsappReady && (prefs?.whatsappEnabled ?? false) && !!prefs?.whatsappNumber,
-        run: () => sendWhatsApp(prefs!.whatsappNumber!, body, whatsappCfg),
+        run: () => sendWhatsApp(prefs!.whatsappNumber!, notifBody, whatsappCfg),
       },
       {
         channel: 'TELEGRAM',
         enabled: telegramReady && (prefs?.telegramEnabled ?? false) && !!prefs?.telegramChatId,
-        run: () => sendTelegram(prefs!.telegramChatId!, body, telegramCfg),
+        run: () => sendTelegram(prefs!.telegramChatId!, notifBody, telegramCfg),
       },
     ];
 

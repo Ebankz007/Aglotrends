@@ -48,6 +48,7 @@ export function SignalsCenter() {
                 </div>
                 <div className="flex items-center gap-2">
                   {s.visibility === 'PREMIUM' && <Badge tone="neutral">PREMIUM</Badge>}
+                  {s.grace && <Badge tone="warn">Grace</Badge>}
                   {!teaser && <Badge tone={dirTone(s.direction)}>{s.direction}</Badge>}
                 </div>
               </div>
@@ -59,6 +60,10 @@ export function SignalsCenter() {
                   <button onClick={() => s.authorId && onSubscribe(s.authorId)} disabled={submitting===s.authorId} className="mt-3 rounded-full bg-brand px-4 py-2 text-sm font-bold text-night disabled:opacity-50">
                     {submitting===s.authorId ? 'Subscribing…' : 'Subscribe for $50/mo'}
                   </button>
+                </div>
+              ) : s.grace ? (
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200">
+                  Access in 7-day grace period. Renew to continue receiving new signals.
                 </div>
               ) : (
                 <>

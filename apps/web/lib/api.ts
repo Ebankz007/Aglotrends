@@ -741,10 +741,33 @@ export async function createSignal(input: {
   takeProfit?: string;
   timeframe?: string;
   notes?: string;
+  visibility?: 'FREE'|'PREMIUM';
+  chartImageUrl?: string;
+  chartLink?: string;
   publish?: boolean;
 }): Promise<SignalDto> {
   const data = await request<{ signal: SignalDto }>("/admin/signals", {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.signal;
+}
+
+export async function updateSignal(id: string, input: Partial<{
+  title: string;
+  instrument: string;
+  direction: "BUY" | "SELL" | "NEUTRAL";
+  entryPrice?: string;
+  stopLoss?: string;
+  takeProfit?: string;
+  timeframe?: string;
+  notes?: string;
+  visibility?: 'FREE'|'PREMIUM';
+  chartImageUrl?: string;
+  chartLink?: string;
+}>): Promise<SignalDto> {
+  const data = await request<{ signal: SignalDto }>(`/admin/signals/${id}`, {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
   return data.signal;

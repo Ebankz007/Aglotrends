@@ -18,6 +18,7 @@ import {
   createSignal,
   fetchAdminSignals,
   publishSignal,
+  updateSignal,
   type SignalDto,
 } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -48,6 +49,7 @@ export function SignalsTab() {
   const [chartImageUrl, setChartImageUrl] = useState("");
   const [chartLink, setChartLink] = useState("");
   const [publish, setPublish] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -63,21 +65,39 @@ export function SignalsTab() {
     }
     setBusy(true);
     try {
-      await createSignal({
-        title: title.trim(),
-        instrument: instrument.trim(),
-        direction,
-        entryPrice: entryPrice.trim() || undefined,
-        stopLoss: stopLoss.trim() || undefined,
-        takeProfit: takeProfit.trim() || undefined,
-        timeframe: timeframe.trim() || undefined,
-        notes: notes.trim() || undefined,
-        visibility,
-        chartImageUrl: chartImageUrl.trim() || undefined,
-        chartLink: chartLink.trim() || undefined,
-        publish,
-      });
-      setOk(publish ? "Signal created and published." : "Signal saved as draft.");
+      if (editingId) {
+        await updateSignal(editingId, {
+          title: title.trim(),
+          instrument: instrument.trim(),
+          direction,
+          entryPrice: entryPrice.trim() || undefined,
+          stopLoss: stopLoss.trim() || undefined,
+          takeProfit: takeProfit.trim() || undefined,
+          timeframe: timeframe.trim() || undefined,
+          notes: notes.trim() || undefined,
+          visibility,
+          chartImageUrl: chartImageUrl.trim() || undefined,
+          chartLink: chartLink.trim() || undefined,
+        });
+        setOk("Signal updated.");
+        setEditingId(null);
+      } else {
+        await createSignal({
+          title: title.trim(),
+          instrument: instrument.trim(),
+          direction,
+          entryPrice: entryPrice.trim() || undefined,
+          stopLoss: stopLoss.trim() || undefined,
+          takeProfit: takeProfit.trim() || undefined,
+          timeframe: timeframe.trim() || undefined,
+          notes: notes.trim() || undefined,
+          visibility,
+          chartImageUrl: chartImageUrl.trim() || undefined,
+          chartLink: chartLink.trim() || undefined,
+          publish,
+        });
+        setOk(publish ? "Signal created and published." : "Signal saved as draft.");
+      }
       setTitle("");
       setInstrument("");
       setEntryPrice("");
@@ -88,9 +108,10 @@ export function SignalsTab() {
       setVisibility('FREE');
       setChartImageUrl("");
       setChartLink("");
+      setPublish(true);
       reload();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "Could not create the signal.");
+      setFormError(err instanceof ApiError ? err.message : "Could not save the signal.");
     } finally {
       setBusy(false);
     }
@@ -108,7 +129,7 @@ export function SignalsTab() {
 
   return (
     <div className="flex flex-col gap-5">
-      <Panel title="Author a signal">
+      <Panel title={editingId ? "Edit signal" : "Author a signal"}>
         <form onSubmit={onCreate} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Title" value={title} onChange={setTitle} placeholder="Breakout continuation" />
           <Field label="Instrument" value={instrument} onChange={setInstrument} placeholder="EURUSD" />
@@ -142,15 +163,17 @@ export function SignalsTab() {
           <div className="sm:col-span-2">
             <Field label="Notes (optional)" value={notes} onChange={setNotes} placeholder="Rationale, context" />
           </div>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <input
-              type="checkbox"
-              checked={publish}
-              onChange={(e) => setPublish(e.target.checked)}
-              className="h-4 w-4 accent-[var(--color-brand)]"
-            />
-            Publish immediately (delivers to members&apos; enabled channels)
-          </label>
+          {!editingId && (
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={publish}
+                onChange={(e) => setPublish(e.target.checked)}
+                className="h-4 w-4 accent-[var(--color-brand)]"
+              />
+              Publish immediately (delivers to members&apos; enabled channels)
+            </label>
+          )}
           {formError && (
             <div className="sm:col-span-2">
               <Note tone="error">{formError}</Note>
@@ -161,10 +184,33 @@ export function SignalsTab() {
               <Note tone="ok">{ok}</Note>
             </div>
           )}
-          <div className="sm:col-span-2">
+          <div className="sm:col-span-2 flex items-center gap-2">
             <ActionButton type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Create signal"}
+              {busy ? "Saving…" : editingId ? "Save changes" : "Create signal"}
             </ActionButton>
+            {editingId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingId(null);
+                  setTitle("");
+                  setInstrument("");
+                  setDirection("BUY");
+                  setEntryPrice("");
+                  setStopLoss("");
+                  setTakeProfit("");
+                  setTimeframe("");
+                  setNotes("");
+                  setVisibility('FREE');
+                  setChartImageUrl("");
+                  setChartLink("");
+                  setPublish(true);
+                }}
+                className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-bold text-soft hover:bg-white/10"
+              >
+                Cancel
+              </button>
+            )}
           </div>
         </form>
       </Panel>
@@ -187,7 +233,28 @@ export function SignalsTab() {
                   <Badge tone={statusTone(s.status)}>{s.status}</Badge>
                 </Td>
                 <Td className="whitespace-nowrap text-xs text-mist">{formatDateTime(s.createdAt)}</Td>
-                <Td>
+                <Td className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(s.id);
+                      setTitle(s.title);
+                      setInstrument(s.instrument);
+                      setDirection(s.direction);
+                      setEntryPrice(s.entryPrice ?? "");
+                      setStopLoss(s.stopLoss ?? "");
+                      setTakeProfit(s.takeProfit ?? "");
+                      setTimeframe(s.timeframe ?? "");
+                      setNotes(s.notes ?? "");
+                      setVisibility((s as any).visibility ?? 'FREE');
+                      setChartImageUrl((s as any).chartImageUrl ?? "");
+                      setChartLink((s as any).chartLink ?? "");
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold text-soft transition hover:bg-white/10"
+                  >
+                    Edit
+                  </button>
                   {s.status === "DRAFT" && (
                     <button
                       type="button"

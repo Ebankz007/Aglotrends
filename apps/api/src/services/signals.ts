@@ -54,3 +54,26 @@ export async function publishSignal(signalId: string) {
   await dispatchSignalNotifications(signal);
   return signal;
 }
+
+export async function updateSignal(signalId: string, input: Partial<CreateSignalInput>) {
+  const [signal] = await db
+    .update(schema.signals)
+    .set({
+      title: input.title,
+      instrument: input.instrument,
+      direction: input.direction,
+      entryPrice: input.entryPrice ?? null,
+      stopLoss: input.stopLoss ?? null,
+      takeProfit: input.takeProfit ?? null,
+      timeframe: input.timeframe ?? null,
+      notes: input.notes ?? null,
+      visibility: input.visibility ?? undefined,
+      chartImageUrl: input.chartImageUrl ?? null,
+      chartLink: input.chartLink ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.signals.id, signalId))
+    .returning();
+  if (!signal) throw ApiError.notFound('Signal not found');
+  return signal;
+}

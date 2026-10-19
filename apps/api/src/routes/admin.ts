@@ -415,6 +415,16 @@ adminRouter.post(
   }),
 );
 
+adminRouter.patch(
+  '/signals/:id',
+  asyncHandler(async (req, res) => {
+    const body = signalSchema.partial().parse(req.body);
+    const signal = await updateSignal(req.params.id!, body);
+    await audit(req.user!.id, 'signal.update', 'signal', signal.id);
+    res.json({ signal });
+  }),
+);
+
 /* ----------------------------------------------------------- settlements */
 
 adminRouter.get(

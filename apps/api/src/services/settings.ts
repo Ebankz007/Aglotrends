@@ -70,16 +70,16 @@ const GATEWAY_DEFAULTS: GatewaySettings = {
 
 /** The effective gateway config: stored value first, environment as fallback. */
 export async function resolveGatewaySettings(): Promise<GatewaySettings> {
-  const stored = (await getSetting<Partial<GatewaySettings>>(GATEWAY_KEY)) ?? {};
-  const merged = { ...GATEWAY_DEFAULTS, ...stored };
+  // Env-only mode: ignore DB settings for Pay2Crypto, match COPINEX behaviour
   return {
-    ...merged,
-    apiUrl: (merged.apiUrl || config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
-    // Stored values are encrypted at rest; environment values are plaintext.
-    token: merged.token ? decryptSecret(merged.token) : config.PAY2CRYPTO_TOKEN || '',
-    webhookSecret: merged.webhookSecret
-      ? decryptSecret(merged.webhookSecret)
-      : config.PAY2CRYPTO_WEBHOOK_SECRET || '',
+    provider: 'pay2crypto',
+    apiUrl: (config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
+    walletAddress: '',
+    network: 'trc20',
+    asset: 'USDT',
+    token: config.PAY2CRYPTO_TOKEN || '',
+    webhookSecret: config.PAY2CRYPTO_WEBHOOK_SECRET || '',
+    forceMock: false,
   };
 }
 
@@ -111,16 +111,16 @@ function sourceOf(stored: string | undefined, env: string): 'database' | 'enviro
 }
 
 export async function gatewaySettingsView(): Promise<GatewaySettingsView> {
-  const stored = (await getSetting<Partial<GatewaySettings>>(GATEWAY_KEY)) ?? {};
-  const merged = { ...GATEWAY_DEFAULTS, ...stored };
-  // Deliberately does NOT decrypt. The view only needs to know *whether* a
-  // secret is set, so a rotated or missing key cannot break the one console an
-  // operator needs in order to fix it.
+  // Env-only view, matches COPINEX
   const effective: GatewaySettings = {
-    ...merged,
-    apiUrl: (merged.apiUrl || config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
-    token: merged.token || config.PAY2CRYPTO_TOKEN || '',
-    webhookSecret: merged.webhookSecret || config.PAY2CRYPTO_WEBHOOK_SECRET || '',
+    provider: 'pay2crypto',
+    apiUrl: (config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
+    walletAddress: '',
+    network: 'trc20',
+    asset: 'USDT',
+    token: config.PAY2CRYPTO_TOKEN || '',
+    webhookSecret: config.PAY2CRYPTO_WEBHOOK_SECRET || '',
+    forceMock: false,
   };
   return {
     provider: effective.provider,
@@ -131,10 +131,10 @@ export async function gatewaySettingsView(): Promise<GatewaySettingsView> {
     forceMock: effective.forceMock,
     hasToken: effective.token.length > 0,
     hasWebhookSecret: effective.webhookSecret.length > 0,
-    tokenSource: sourceOf(stored.token, config.PAY2CRYPTO_TOKEN),
-    webhookSecretSource: sourceOf(stored.webhookSecret, config.PAY2CRYPTO_WEBHOOK_SECRET),
+    tokenSource: config.PAY2CRYPTO_TOKEN ? 'environment' : 'unset',
+    webhookSecretSource: config.PAY2CRYPTO_WEBHOOK_SECRET ? 'environment' : 'unset',
     mockActive: isGatewayMock(effective),
-    secretsEncrypted: encryptionAvailable(),
+    secretsEncrypted: false,
   };
 }
 
@@ -151,31 +151,8 @@ export interface GatewaySettingsInput {
 }
 
 export async function saveGatewaySettings(input: GatewaySettingsInput): Promise<GatewaySettingsView> {
-  const current = (await getSetting<Partial<GatewaySettings>>(GATEWAY_KEY)) ?? {};
-  const next: Partial<GatewaySettings> = { ...current };
-
-  if (input.provider !== undefined) next.provider = input.provider.trim();
-  if (input.apiUrl !== undefined) next.apiUrl = input.apiUrl.trim().replace(/\/+$/, '');
-  if (input.walletAddress !== undefined) next.walletAddress = input.walletAddress.trim();
-  if (input.network !== undefined) next.network = input.network.trim();
-  if (input.asset !== undefined) next.asset = input.asset.trim().toUpperCase();
-  if (input.forceMock !== undefined) next.forceMock = input.forceMock;
-  // A blank string means "clear the override" — the env value (if any) takes
-  // over again. `undefined` means "leave whatever is stored alone".
-  if (input.token !== undefined) next.token = seal(input.token);
-  if (input.webhookSecret !== undefined) next.webhookSecret = seal(input.webhookSecret);
-
-  // Opportunistically upgrade anything written before encryption existed, so
-  // legacy plaintext heals on the next save instead of lingering forever.
-  if (encryptionAvailable()) {
-    if (next.token && !isEncrypted(next.token)) next.token = encryptSecret(next.token);
-    if (next.webhookSecret && !isEncrypted(next.webhookSecret)) {
-      next.webhookSecret = encryptSecret(next.webhookSecret);
-    }
-  }
-
-  await setSetting(GATEWAY_KEY, next);
-  return gatewaySettingsView();
+  // Env-only mode: gateway settings are not editable from console, matching COPINEX
+  throw new Error('Gateway settings are environment-only and cannot be modified via console');
 }
 
 /**

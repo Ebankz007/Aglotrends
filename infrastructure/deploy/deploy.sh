@@ -12,7 +12,8 @@
 # - Always deploys origin/main HEAD, whatever branch was pushed (a feature-branch
 #   push triggers a harmless no-op redeploy, never a wrong deploy).
 # - Migrations run automatically (drizzle-kit migrate is additive-only in this
-#   project: 0000-0005 add tables/columns, never drop or alter data).
+#   project: 0000-0008 add tables/columns, never drop or alter data), and the
+#   migration ledger is verified before the build (see below).
 # - Rollback = previous commit + rebuild + restart. The DB is NOT rolled back
 #   (migrations are forward-only by design).
 
@@ -168,6 +169,13 @@ pnpm install --frozen-lockfile || fail "pnpm install failed"
 
 log "running database migrations…"
 pnpm --filter @aglotrends/database migrate || fail "migrations failed — database untouched by later steps, fix and re-push"
+
+# `drizzle-kit migrate` exits 0 even when a migration file was never in the
+# journal (it had nothing to apply and said so). The ledger check is the only
+# thing that catches it: every journal entry must have a matching row in
+# drizzle.__drizzle_migrations. Abort BEFORE the build if the database is not
+# what the code expects.
+pnpm --filter @aglotrends/database verify:migrations || fail "migration ledger mismatch — the database is not what the code expects; aborting before the build"
 
 log "building…"
 pnpm --filter @aglotrends/engine build || fail "engine build failed"

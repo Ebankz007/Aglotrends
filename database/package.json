@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.json",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
+    "verify:migrations": "node scripts/verify-migrations.mjs",
     "studio": "drizzle-kit studio",
     "seed": "tsx src/seed.ts",
     "seed-users": "tsx src/seed-users.ts"

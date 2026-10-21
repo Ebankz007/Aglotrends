@@ -141,13 +141,16 @@ if (config.NODE_ENV === 'production') {
   const emailReady =
     config.EMAIL_PROVIDER === 'resend' ? Boolean(config.RESEND_API_KEY) : Boolean(config.SMTP_URL);
   if (!mockRail && !emailReady) {
+    // NOT fatal. Email is resolved from the console first (app_config
+    // `integrations`) with the environment as a fallback, and config.ts runs
+    // before the database is reachable - so this check cannot see the real
+    // state. Making it fatal took the whole site down over a missing
+    // password-reset mailer while the rail was live. The payment rail check
+    // above stays fatal: that one is about money, and it IS env-only.
     // eslint-disable-next-line no-console
     console.error(
-      config.EMAIL_PROVIDER === 'resend'
-        ? 'Refusing to boot in production without RESEND_API_KEY (EMAIL_PROVIDER=resend).'
-        : 'Refusing to boot in production without SMTP_URL. Format: smtps://user:password@host:465 (password percent-encoded) — or set EMAIL_PROVIDER=resend with RESEND_API_KEY.',
+      'No email transport in the environment (SMTP_URL / RESEND_API_KEY). The console may still have one - the delivery layer resolves the console first. If password resets do not arrive, configure email in the console.',
     );
-    process.exit(1);
   }
   if (!config.SECRET_ENCRYPTION_KEY) {
     // eslint-disable-next-line no-console

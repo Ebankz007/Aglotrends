@@ -117,6 +117,27 @@ async function main() {
   out(`  token stored = ${gw.token ? `len=${String(gw.token).length} encrypted=${String(gw.token).startsWith('v1:')}` : '<empty>'}`);
   out(`  webhookSecret stored = ${gw.webhookSecret ? `len=${String(gw.webhookSecret).length}` : '<empty>'}`);
 
+  // Email is resolved from the console FIRST (app_config `integrations`), with
+  // the environment as a fallback - so the console is the real source. Report
+  // its state (never the secrets) so the operator can see whether password
+  // resets will actually be delivered.
+  const { rows: integrationRows } = await (async () => {
+    const c = new pg.Client({
+      connectionString: databaseUrl,
+      connectionTimeoutMillis: 10_000,
+      query_timeout: 15_000,
+    });
+    await c.connect();
+    const res = await c.query("select value from app_config where key = 'integrations'");
+    await c.end();
+    return res;
+  })();
+  const integ = integrationRows[0]?.value ?? {};
+  const email = integ.email ?? {};
+  out('== console email ==');
+  out(`  provider = ${email.provider || '<none>'}  enabled = ${email.enabled}`);
+  out(`  smtpUrl = ${email.smtpUrl ? 'set' : '<unset>'}  resendApiKey = ${email.resendApiKey ? 'set' : '<unset>'}  from = ${email.from || '<unset>'}`);
+
   if (!gw.token) {
     out('  console holds no credential - leaving the environment untouched');
     return;

@@ -1,0 +1,1 @@
+ALTER TABLE "payments" ADD COLUMN "network" text DEFAULT 'trc20' NOT NULL;

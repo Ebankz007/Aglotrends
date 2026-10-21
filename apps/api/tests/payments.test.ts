@@ -323,3 +323,64 @@ describe('extractWebhookEvent', () => {
     expect(extractWebhookEvent({}).paymentRef).toBeUndefined();
   });
 });
+
+/**
+ * The signed `x-p2c-event` header, which is the gateway's own statement of
+ * what happened. It refines the body's status; it never overrides a
+ * contradiction.
+ */
+describe('extractWebhookEvent with the signed event header', () => {
+  it('settles a confirmed event even when the body still says pending', () => {
+    // The case that strands a paid member: the body is written before the
+    // settlement lands, so a confirmed delivery can carry a stale "pending".
+    const event = extractWebhookEvent(
+      { reference: 'AGL-1', status: 'pending', amount: '20.00' },
+      'payment.confirmed',
+    );
+    expect(event.settled).toBe(true);
+    expect(event.event).toBe('payment.confirmed');
+  });
+
+  it('never settles on a cancelled event, whatever the body says', () => {
+    const event = extractWebhookEvent(
+      { reference: 'AGL-1', status: 'confirmed' },
+      'payment.cancelled',
+    );
+    expect(event.settled).toBe(false);
+    expect(event.terminal).toBe(true);
+  });
+
+  it('never settles on a failed / expired / refunded event', () => {
+    for (const name of ['payment.failed', 'payment.expired', 'payment.refunded']) {
+      const event = extractWebhookEvent({ reference: 'AGL-1', status: 'confirmed' }, name);
+      expect(event.settled).toBe(false);
+      expect(event.terminal).toBe(true);
+    }
+  });
+
+  it('refuses to settle when the body contradicts the event', () => {
+    const event = extractWebhookEvent({ reference: 'AGL-1', status: 'cancelled' }, 'payment.confirmed');
+    expect(event.settled).toBe(false);
+    expect(event.terminal).toBe(true);
+  });
+
+  it('does not settle on a broadcast event - money out is not money confirmed', () => {
+    const event = extractWebhookEvent({ reference: 'AGL-1', status: 'broadcasting' }, 'payment.broadcast');
+    expect(event.settled).toBe(false);
+  });
+
+  it('leaves an unknown event to the body logic', () => {
+    expect(extractWebhookEvent({ reference: 'AGL-1', status: 'confirmed' }, 'payment.something').settled).toBe(
+      true,
+    );
+    expect(extractWebhookEvent({ reference: 'AGL-1', status: 'pending' }, 'payment.something').settled).toBe(
+      false,
+    );
+  });
+
+  it('marks a dead body status as terminal so the invoice can be released', () => {
+    const event = extractWebhookEvent({ reference: 'AGL-1', status: 'cancelled' });
+    expect(event.terminal).toBe(true);
+    expect(event.settled).toBe(false);
+  });
+});

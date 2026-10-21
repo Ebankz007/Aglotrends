@@ -43,6 +43,17 @@ const NETWORKS_ARG = (() => {
   const hit = process.argv.find((a) => a.startsWith('--networks='));
   return hit ? hit.slice('--networks='.length).trim() : '';
 })();
+/**
+ * The callback capture window. '1' makes the API log the raw body of a
+ * callback whose signature it could not verify, so the signing scheme can be
+ * derived from evidence instead of guesswork. It is a TEMPORARY window: the
+ * deploy passes this flag for as long as the scheme is unknown, and the flag
+ * is removed from the deploy once the scheme is pinned by a test.
+ */
+const WEBHOOK_CAPTURE_ARG = (() => {
+  const hit = process.argv.find((a) => a.startsWith('--webhook-capture='));
+  return hit ? hit.slice('--webhook-capture='.length).trim() : '';
+})();
 const out = (line) => process.stdout.write(`${line}\n`);
 
 function parseEnv(text) {
@@ -199,6 +210,7 @@ async function main() {
   apply('PAY2CRYPTO_WEBHOOK_SECRET', webhookSecret, true);
   if (NETWORKS_ARG) apply('PAY2CRYPTO_NETWORKS', NETWORKS_ARG, true);
   else apply('PAY2CRYPTO_NETWORKS', 'trc20', false);
+  if (WEBHOOK_CAPTURE_ARG) apply('PAY2CRYPTO_WEBHOOK_CAPTURE', WEBHOOK_CAPTURE_ARG, true);
 
   // The mock rail is a review-only hatch. Populating a live credential is the
   // moment the rail must stop being a review rail - but only that moment.
@@ -216,6 +228,7 @@ async function main() {
   out(`  PAY2CRYPTO_TOKEN = ${finalEnv.PAY2CRYPTO_TOKEN ? `set len=${finalEnv.PAY2CRYPTO_TOKEN.length} first6=${JSON.stringify(finalEnv.PAY2CRYPTO_TOKEN.slice(0, 6))}` : '<unset>'}`);
   out(`  PAY2CRYPTO_WEBHOOK_SECRET = ${finalEnv.PAY2CRYPTO_WEBHOOK_SECRET ? `set len=${finalEnv.PAY2CRYPTO_WEBHOOK_SECRET.length}` : '<unset>'}`);
   out(`  PAY2CRYPTO_NETWORKS = ${finalEnv.PAY2CRYPTO_NETWORKS || '<unset>'}`);
+  out(`  PAY2CRYPTO_WEBHOOK_CAPTURE = ${finalEnv.PAY2CRYPTO_WEBHOOK_CAPTURE || '<unset>'}`);
   out(`  ALLOW_MOCK_RAIL = ${finalEnv.ALLOW_MOCK_RAIL || '<unset>'}`);
   out(`  LIVE = ${finalEnv.PAY2CRYPTO_TOKEN && finalEnv.ALLOW_MOCK_RAIL !== 'true' ? 'yes' : 'no (mock rail active)'}`);
 

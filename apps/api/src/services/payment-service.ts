@@ -433,6 +433,62 @@ const UNSETTLED_TOKENS = new Set([
   'never',
 ]);
 
+/**
+ * The gateway's own event names (the `x-p2c-event` header).
+ *
+ * A CONFIRMED event is a signed statement from the gateway that the money
+ * moved. It is authoritative over a stale `status` in the body: the body of a
+ * confirmed delivery can still read "pending" while the settlement is being
+ * written, and treating that as "not paid" is how a paid member ends up with
+ * a dead dashboard.
+ *
+ * A TERMINAL event is a signed statement that the request will never settle
+ * (cancelled, expired, failed, refunded). It must never credit.
+ *
+ * `payment.broadcast` is deliberately in NEITHER set: the money has left the
+ * member's wallet but is not yet confirmed on-chain, and the vendor's own
+ * guidance is to release against the state you control — confirmation, not
+ * broadcast.
+ */
+const CONFIRMED_EVENTS = new Set([
+  'payment.confirmed',
+  'payment.settled',
+  'payment.paid',
+  'payment.completed',
+  'payment.successful',
+  'payment.finalized',
+]);
+
+const TERMINAL_EVENTS = new Set([
+  'payment.cancelled',
+  'payment.canceled',
+  'payment.failed',
+  'payment.expired',
+  'payment.refunded',
+  'payment.reversed',
+  'payment.rejected',
+  'payment.declined',
+]);
+
+/**
+ * Status tokens that mean the request is DEAD. They veto a confirmed event:
+ * a body that says "cancelled" while the header says "confirmed" is a
+ * contradiction, and a contradiction must not move money.
+ */
+const TERMINAL_NEGATIVE_TOKENS = new Set([
+  'cancelled',
+  'canceled',
+  'failed',
+  'error',
+  'reversed',
+  'refund',
+  'refunded',
+  'declined',
+  'rejected',
+  'expired',
+  'invalid',
+]);
+
 export interface WebhookEvent {
   paymentRef?: string;
   status?: string;
@@ -440,6 +496,10 @@ export interface WebhookEvent {
   txHash?: string;
   /** True only when the payload says the money actually moved. */
   settled: boolean;
+  /** True when the gateway signalled the request is dead (cancelled/expired/…). */
+  terminal: boolean;
+  /** The gateway's event name, when the delivery carried one. */
+  event?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -495,10 +555,17 @@ function statusTokens(status: string): string[] {
  * but no settled status is acknowledged and NOT credited. The old handler
  * treated a missing status as "paid", which would hand a wallet balance for
  * a mere "payment created" ping — free money, at the merchant's expense.
+ *
+ * The event name (the signed `x-p2c-event` header) refines that, it never
+ * loosens it: a confirmed event settles, a terminal event never settles, and
+ * a contradiction between the event and the body settles nothing.
  */
-export function extractWebhookEvent(payload: unknown): WebhookEvent {
+export function extractWebhookEvent(payload: unknown, eventName?: string): WebhookEvent {
   const body = asRecord(payload);
-  if (!body) return { settled: false };
+  const event = eventName?.trim().toLowerCase() || undefined;
+  const eventConfirmed = event ? CONFIRMED_EVENTS.has(event) : false;
+  const eventTerminal = event ? TERMINAL_EVENTS.has(event) : false;
+  if (!body) return { settled: false, terminal: eventTerminal, event };
 
   const nested = asRecord(body.data) ?? asRecord(body.payment);
   const sources = [body, nested];
@@ -514,19 +581,33 @@ export function extractWebhookEvent(payload: unknown): WebhookEvent {
   ].filter((s): s is string => Boolean(s));
   const status = statusCandidates[0];
 
-  let settled = false;
+  let bodySettled = false;
   for (const candidate of statusCandidates) {
     const tokens = statusTokens(candidate);
     if (tokens.some((t) => UNSETTLED_TOKENS.has(t))) continue;
     if (tokens.some((t) => SETTLED_TOKENS.has(t))) {
-      settled = true;
+      bodySettled = true;
       break;
     }
   }
 
   // A non-null `paid_at` is an unambiguous settlement signal in the live shape.
   const paidAt = firstString([body], ['paid_at', 'paidAt']);
-  if (paidAt) settled = true;
+  if (paidAt) bodySettled = true;
+
+  const bodyTerminal = statusCandidates.some((candidate) =>
+    statusTokens(candidate).some((t) => TERMINAL_NEGATIVE_TOKENS.has(t)),
+  );
+
+  let settled: boolean;
+  if (eventTerminal) {
+    settled = false;
+  } else if (eventConfirmed) {
+    // The signed event is authoritative — unless the body contradicts it.
+    settled = !bodyTerminal;
+  } else {
+    settled = bodySettled;
+  }
 
   return {
     paymentRef,
@@ -534,6 +615,8 @@ export function extractWebhookEvent(payload: unknown): WebhookEvent {
     amount: firstNumber(sources, WEBHOOK_AMOUNT_KEYS),
     txHash: firstString(sources, WEBHOOK_TX_KEYS),
     settled,
+    terminal: eventTerminal || bodyTerminal,
+    event,
   };
 }
 
@@ -542,39 +625,87 @@ export function extractWebhookEvent(payload: unknown): WebhookEvent {
  * ledger, but a REGISTRATION payment always re-attempts compensation so a
  * first attempt that failed after the PAID write heals on gateway retry.
  */
-export async function handlePaymentWebhook(payload: unknown): Promise<{
+export interface WebhookContext {
+  /** The gateway's event name, e.g. `payment.confirmed` (the signed header). */
+  event?: string;
+  /** The gateway's delivery id, for tracing. */
+  deliveryId?: string;
+}
+
+export interface WebhookResult {
   applied: boolean;
   purpose: string;
   userId: string;
   compensationRun: boolean;
-}> {
-  const event = extractWebhookEvent(payload);
+  /** Why nothing was applied, when nothing was. */
+  reason?: string;
+}
+
+export async function handlePaymentWebhook(
+  payload: unknown,
+  context: WebhookContext = {},
+): Promise<WebhookResult> {
+  const event = extractWebhookEvent(payload, context.event);
   const paymentRef = event.paymentRef;
   const txHash = event.txHash;
 
   if (!paymentRef) throw ApiError.badRequest('Missing payment_ref', 'INVALID_WEBHOOK');
-
-  // Only a settled event moves money. Anything else (created, pending,
-  // broadcasting) is acknowledged and dropped.
-  if (!event.settled) {
-    logger.info(
-      { paymentRef, status: event.status },
-      'webhook received but not settled - acknowledged without applying',
-    );
-    return {
-      applied: false,
-      purpose: 'UNKNOWN',
-      userId: '',
-      compensationRun: false,
-    };
-  }
 
   const [payment] = await db
     .select()
     .from(schema.payments)
     .where(eq(schema.payments.paymentRef, paymentRef))
     .limit(1);
-  if (!payment) throw ApiError.notFound('Unknown payment_ref');
+
+  if (!payment) {
+    if (event.settled) {
+      // A settlement we cannot match. The row may not have been written yet
+      // (a create that raced its own callback), so a retry is worth it.
+      throw ApiError.notFound('Unknown payment_ref');
+    }
+    // Nothing to settle: a retry will never make us recognise it, and a
+    // 404 storm teaches the gateway nothing. Acknowledge and log loudly.
+    logger.warn(
+      { paymentRef, event: context.event, delivery: context.deliveryId },
+      'callback for an unknown payment_ref - acknowledged without applying',
+    );
+    return {
+      applied: false,
+      purpose: 'UNKNOWN',
+      userId: '',
+      compensationRun: false,
+      reason: 'UNKNOWN_REFERENCE',
+    };
+  }
+
+  // Only a settled event moves money. Anything else (created, pending,
+  // broadcasting) is acknowledged and dropped.
+  if (!event.settled) {
+    if (event.terminal && payment.status === 'PENDING') {
+      // The gateway killed the request (cancelled, expired, failed). Our
+      // PENDING row must not keep the member locked out of a new invoice
+      // for a request that can never be paid.
+      await db
+        .update(schema.payments)
+        .set({ status: 'EXPIRED' })
+        .where(eq(schema.payments.id, payment.id));
+      logger.info(
+        { paymentRef, event: context.event, delivery: context.deliveryId },
+        'payment expired after a terminal gateway event',
+      );
+    }
+    logger.info(
+      { paymentRef, status: event.status, event: context.event },
+      'webhook received but not settled - acknowledged without applying',
+    );
+    return {
+      applied: false,
+      purpose: payment.purpose,
+      userId: payment.userId,
+      compensationRun: false,
+      reason: event.terminal ? 'TERMINAL' : 'NOT_SETTLED',
+    };
+  }
 
   const alreadyPaid = payment.status === 'PAID';
 
@@ -589,10 +720,28 @@ export async function handlePaymentWebhook(payload: unknown): Promise<{
       // Half-cent tolerance: float noise is ~1e-9, anything at or above this
       // is a real discrepancy, not dust.
       if (Math.abs(echoed - expected) >= 0.005) {
-        throw ApiError.badRequest(
-          `Payment amount ${event.amount} != expected ${expected}`,
-          'AMOUNT_MISMATCH',
+        // Fail closed: a mismatch never credits. But do NOT throw — a 4xx
+        // here just makes the gateway retry a payment we have already
+        // refused, forever, while the member waits. Refuse, log loudly, and
+        // leave the invoice for an operator to settle by hand.
+        logger.error(
+          {
+            paymentRef,
+            event: context.event,
+            delivery: context.deliveryId,
+            echoedAmount: echoed,
+            expectedAmount: expected,
+            userId: payment.userId,
+          },
+          'webhook amount does not match the invoice - NOT credited, manual settlement required',
         );
+        return {
+          applied: false,
+          purpose: payment.purpose,
+          userId: payment.userId,
+          compensationRun: false,
+          reason: 'AMOUNT_MISMATCH',
+        };
       }
     }
 

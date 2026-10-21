@@ -73,7 +73,16 @@ function redact(value, key = '') {
   return value;
 }
 
-const iso = (ms) => (ms ? new Date(Number(ms)).toISOString() : '-');
+/** Render a timestamp of unknown flavour (epoch seconds, epoch ms, or a string). */
+const iso = (value) => {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'string' && !/^-?\d+$/.test(value)) return value;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  const ms = Math.abs(n) < 1e11 ? n * 1000 : n;
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toISOString();
+};
 
 async function main() {
   const apiEnv = parseEnv(API_ENV);
@@ -216,25 +225,59 @@ async function main() {
   }
 
   const ourRefs = new Set(payments.map((p) => p.payment_ref));
-  for (const item of items.slice(0, 20)) {
-    const ref = typeof item?.reference === 'string' ? item.reference : '(no reference)';
-    const ours = ourRefs.has(ref);
-    out(
-      `  ${ours ? 'OURS ' : '     '} status=${String(item?.status ?? '?').padEnd(12)} ` +
-        `amount=${String(item?.amount ?? '?').padEnd(8)} ref=${ref.slice(0, 30)} ` +
-        `network=${String(item?.network ?? '?').padEnd(6)} ` +
-        `token=${String(item?.token ?? '?').slice(0, 10)} ` +
-        `created=${iso(item?.created_at)} paid=${iso(item?.paid_at)} ` +
-        `hash=${item?.submitted_hash ? String(item.submitted_hash).slice(0, 14) : '-'}`,
-    );
-    if (ours) {
-      out(`        raw = ${JSON.stringify(redact(item)).slice(0, 600)}`);
+  for (const item of items.slice(0, 25)) {
+    try {
+      const ref = typeof item?.reference === 'string' ? item.reference : '(no reference)';
+      const ours = ourRefs.has(ref);
+      out(
+        `  ${ours ? 'OURS ' : '     '} status=${String(item?.status ?? '?').padEnd(12)} ` +
+          `amount=${String(item?.amount ?? '?').padEnd(10)} ref=${ref.slice(0, 30)} ` +
+          `network=${String(item?.network ?? '?').padEnd(6)} ` +
+          `id=${String(item?.id ?? item?.request_id ?? '?').slice(0, 14)} ` +
+          `created=${iso(item?.created_at)} paid=${iso(item?.paid_at)} ` +
+          `hash=${item?.submitted_hash ? String(item.submitted_hash).slice(0, 16) : '-'}`,
+      );
+      if (ours) {
+        out(`        raw = ${JSON.stringify(redact(item)).slice(0, 700)}`);
+      }
+    } catch (err) {
+      out(`  (unprintable item: ${err.message})`);
+    }
+  }
+  if (items.length) {
+    out(`  -- shape of the first item: ${JSON.stringify(redact(items[0])).slice(0, 700)}`);
+  }
+
+  out('== per-payment: the gateway asked directly ==');
+  for (const p of payments.filter((x) => x.status === 'PENDING').slice(0, 6)) {
+    if (!p.gateway_txid) continue;
+    try {
+      const res = await fetch(`${apiUrl}/v1/payment-requests/${p.gateway_txid}`, {
+        headers,
+        signal: timeout(),
+      });
+      const text = await res.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+      const body = parsed?.data ?? parsed;
+      out(
+        `  ref=${p.payment_ref.slice(0, 22)} gwId=${String(p.gateway_txid).slice(0, 18)} ` +
+          `http=${res.status} status=${String(body?.status ?? '?')} ` +
+          `amount=${String(body?.amount ?? '?')} paid=${iso(body?.paid_at)}`,
+      );
+      out(`      raw = ${JSON.stringify(redact(body)).slice(0, 700)}`);
+    } catch (err) {
+      out(`  ref=${p.payment_ref.slice(0, 22)} ERROR ${err.message}`);
     }
   }
 
   out('== verdict ==');
-  const confirmed = items.filter((i) =>
-    /confirmed|paid|success|complete/i.test(String(i?.status ?? '')),
+  const confirmed = items.filter(
+    (i) => /confirmed|paid|success|complete|settled/i.test(String(i?.status ?? '')) || Boolean(i?.paid_at),
   );
   out(`  gateway reports ${confirmed.length} confirmed request(s)`);
   for (const c of confirmed) {

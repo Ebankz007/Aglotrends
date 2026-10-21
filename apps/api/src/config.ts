@@ -61,7 +61,16 @@ const schema = z.object({
   // checkout URL is issued so the whole flow is testable with no merchant token.
   PAY2CRYPTO_API_URL: z.string().optional().default(''),
   PAY2CRYPTO_TOKEN: z.string().optional().default(''),
-     PAY2CRYPTO_WEBHOOK_SECRET: z.string().optional().default(''),
+  PAY2CRYPTO_WEBHOOK_SECRET: z.string().optional().default(''),
+
+  /**
+   * Diagnostic hatch. '1' logs the raw body of a callback whose signature we
+   * could not verify, so the signing scheme can be derived from evidence
+   * instead of guesswork. Off by default and meant to be a short window: the
+   * body carries our own invoice reference, amount and tx hash — no
+   * credentials — but it is still a production log.
+   */
+  PAY2CRYPTO_WEBHOOK_CAPTURE: z.string().optional().default('0'),
 
      // The USDT rails the merchant account can actually serve, comma
      // separated. A rail the gateway has no receiving address for is refused

@@ -40,6 +40,17 @@ DIAG_WEBHOOK_ID="wh-1"
 # live account: TRC20 (2 receiving addresses) and BEP20 (1) exist; ERC20 has
 # none until an address is added in the Pay2Crypto dashboard.
 SYNC_NETWORKS="trc20,bep20"
+# ── TEMPORARY: the callback capture window ──────────────────
+# Pay2Crypto signs every callback (`x-p2c-signature: t=…,v1=…`) but publishes
+# no signing string, and the endpoint used to demand a shared-secret header
+# the gateway never sends — so every real callback was answered 401 and a
+# confirmed payment never activated the member's dashboard.
+#
+# While this is "1", the API logs the raw body of a callback it could not
+# verify, so the scheme is derived from evidence instead of guessed. REMOVE
+# THIS LINE once the scheme is pinned by a test — a production log should not
+# keep bodies for longer than the investigation needs them.
+WEBHOOK_CAPTURE="1"
 # Absolute node/pnpm first: webhook/cron shells carry a minimal PATH.
 export PATH="/www/server/nodejs/v24.18.0/bin:$PATH"
 # ─────────────────────────────────────────────────────────
@@ -142,7 +153,7 @@ GATEWAY_ENV_CHANGED=0
 if [ -f "$APP_DIR/database/scripts/sync-gateway-env.mjs" ]; then
   log "syncing the gateway credential into the runtime environment"
   set +e
-  node "$APP_DIR/database/scripts/sync-gateway-env.mjs" --apply --networks="$SYNC_NETWORKS"
+  node "$APP_DIR/database/scripts/sync-gateway-env.mjs" --apply --networks="$SYNC_NETWORKS" --webhook-capture="$WEBHOOK_CAPTURE"
   _sync_rc=$?
   set -e
   if [ "$_sync_rc" -eq 42 ]; then

@@ -11,6 +11,7 @@ import {
   refreshCheckoutUrl,
   type PaymentPurpose,
 } from '../services/payment-service.js';
+import { gatewayIsMock } from '../services/settings.js';
 
 export const paymentsRouter = Router();
 paymentsRouter.use(requireAuth);
@@ -76,7 +77,8 @@ paymentsRouter.post(
     }
     const { network } = registrationSchema.parse(req.body ?? {});
     const payment = await createPayment(req.user!.id, 'REGISTRATION', undefined, network);
-    res.status(201).json({ payment });
+    res.status(201).json({ payment, mock: gatewayIsMock() });
+    return;
   }),
 );
 
@@ -86,7 +88,8 @@ paymentsRouter.post(
   asyncHandler(async (req, res) => {
     const { amountCents, network } = depositSchema.parse(req.body);
     const payment = await createPayment(req.user!.id, 'DEPOSIT', amountCents, network);
-    res.status(201).json({ payment });
+    res.status(201).json({ payment, mock: gatewayIsMock() });
+    return;
   }),
 );
 
@@ -108,6 +111,7 @@ paymentsRouter.post(
   '/:id/checkout',
   asyncHandler(async (req, res) => {
     const id = z.string().uuid().parse(req.params.id);
-    res.json(await refreshCheckoutUrl(req.user!.id, id));
+    res.json({ ...(await refreshCheckoutUrl(req.user!.id, id)), mock: gatewayIsMock() });
+    return;
   }),
 );

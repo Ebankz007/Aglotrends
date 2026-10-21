@@ -67,9 +67,15 @@ const GATEWAY_DEFAULTS: GatewaySettings = {
   forceMock: false,
 };
 
-/** The effective gateway config: stored value first, environment as fallback. */
-export async function resolveGatewaySettings(): Promise<GatewaySettings> {
-  // Env-only mode: ignore DB settings for Pay2Crypto, match COPINEX behaviour
+/**
+ * The gateway config, resolved from the environment only.
+ *
+ * Env-only is a deliberate contract, not an omission: the console cannot edit
+ * the rail (see `saveGatewaySettings`), so the server environment is the only
+ * place the rail is defined. Everything that needs to know "is this mock?"
+ * reads THIS function — one source of truth, no second copy to drift.
+ */
+export function gatewaySettingsFromEnv(): GatewaySettings {
   return {
     provider: 'pay2crypto',
     apiUrl: (config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
@@ -82,9 +88,22 @@ export async function resolveGatewaySettings(): Promise<GatewaySettings> {
   };
 }
 
+/** The effective gateway config: the environment, and nothing else. */
+export async function resolveGatewaySettings(): Promise<GatewaySettings> {
+  return gatewaySettingsFromEnv();
+}
+
 /** Mock mode: no usable credentials, an explicit override, or the test suite. */
 export function isGatewayMock(gw: GatewaySettings): boolean {
   return config.NODE_ENV === 'test' || gw.forceMock || !gw.apiUrl || !gw.token;
+}
+
+/**
+ * Is the rail in mock mode right now? Synchronous, because the answer is
+ * needed on hot paths (create/refresh a checkout, label the button).
+ */
+export function gatewayIsMock(): boolean {
+  return isGatewayMock(gatewaySettingsFromEnv());
 }
 
 /** Safe read model — never contains the token or webhook secret themselves. */
@@ -110,17 +129,7 @@ function sourceOf(stored: string | undefined, env: string): 'database' | 'enviro
 }
 
 export async function gatewaySettingsView(): Promise<GatewaySettingsView> {
-  // Env-only view, matches COPINEX
-  const effective: GatewaySettings = {
-    provider: 'pay2crypto',
-    apiUrl: (config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
-    walletAddress: '',
-    network: 'trc20',
-    asset: 'USDT',
-    token: config.PAY2CRYPTO_TOKEN || '',
-    webhookSecret: config.PAY2CRYPTO_WEBHOOK_SECRET || '',
-    forceMock: false,
-  };
+  const effective = gatewaySettingsFromEnv();
   return {
     provider: effective.provider,
     apiUrl: effective.apiUrl,

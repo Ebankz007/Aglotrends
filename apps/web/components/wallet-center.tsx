@@ -95,6 +95,8 @@ export function WalletCenter() {
   });
 
   const [checkout, setCheckout] = useState<PaymentDto | null>(null);
+  /** True when the rail is a review rail: the checkout page collects nothing. */
+  const [checkoutIsMock, setCheckoutIsMock] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
   const [registrationNetwork, setRegistrationNetwork] = useState<'trc20'|'erc20'|'bep20'>('trc20');
@@ -120,8 +122,9 @@ export function WalletCenter() {
     setPayError(null);
     setPayBusy(true);
     try {
-      const payment = await createRegistrationPayment(registrationNetwork);
+      const { payment, mock } = await createRegistrationPayment(registrationNetwork);
       setCheckout(payment);
+      setCheckoutIsMock(mock);
       reload();
     } catch (err) {
       if (err instanceof ApiError && err.code === "ALREADY_REGISTERED") {
@@ -145,8 +148,9 @@ export function WalletCenter() {
     }
     setDepositBusy(true);
     try {
-      const payment = await createDeposit(Math.round(dollars * 100), depositNetwork);
+      const { payment, mock } = await createDeposit(Math.round(dollars * 100), depositNetwork);
       setCheckout(payment);
+      setCheckoutIsMock(mock);
       setDepositAmount("");
       reload();
     } catch (err) {
@@ -162,6 +166,7 @@ export function WalletCenter() {
     try {
       const fresh = await refreshCheckout(payment.id);
       setCheckout({ ...payment, paymentUrl: fresh.paymentUrl });
+      setCheckoutIsMock(fresh.mock);
     } catch (err) {
       setPayError(err instanceof ApiError ? err.message : "Could not refresh the checkout link.");
     }
@@ -248,14 +253,25 @@ export function WalletCenter() {
       )}
 
       {checkout?.paymentUrl && (
-        <Panel title="Complete your payment">
+        <Panel title={checkoutIsMock ? "Complete your payment (test mode)" : "Complete your payment"}>
+          {checkoutIsMock && (
+            <div className="mb-3">
+              <Note tone="error">
+                Test mode: this rail is not connected to Pay2Crypto, so no funds are
+                collected and no on-chain payment is required. An administrator
+                settles the invoice from the console.
+              </Note>
+            </div>
+          )}
           <p className="text-sm text-mist">
             {checkout.purpose === "REGISTRATION" ? "Registration fee" : "Deposit"} of{" "}
             <span className="font-bold text-soft">{formatCents(checkout.amountCents)}</span> —
             reference <span className="font-mono text-xs">{checkout.paymentRef}</span>.
           </p>
           <div className="mt-4 flex flex-col gap-2">
-            <CheckoutLink href={checkout.paymentUrl}>Open secure checkout</CheckoutLink>
+            <CheckoutLink href={checkout.paymentUrl}>
+              {checkoutIsMock ? "Open test checkout" : "Open secure checkout"}
+            </CheckoutLink>
             <ActionButton tone="quiet" onClick={() => onOpenCheckout(checkout)}>
               Link expired? Get a fresh one
             </ActionButton>

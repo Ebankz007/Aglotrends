@@ -107,6 +107,47 @@ export function parsePaymentRequestResponse(data: unknown): {
 }
 
 /**
+ * The review-mode checkout URL.
+ *
+ * It MUST live on our own origin. An earlier version pointed mock invoices at
+ * the gateway's real hosted checkout (`checkout.pay2crypto.com/?txid=mock-…`),
+ * which produced a third-party "Payment link not found" page: the member was
+ * told a merchant error while the real cause was our own test rail. A mock
+ * invoice now goes to a local page that says exactly what it is.
+ */
+export function buildMockCheckoutUrl(input: {
+  paymentRef: string;
+  amountCents: number;
+  purpose: PaymentPurpose;
+  network?: string;
+  gatewayTxid: string;
+}): string {
+  const base = config.APP_URL.replace(/\/$/, '');
+  const params = new URLSearchParams({
+    ref: input.paymentRef,
+    // Named `test_txid`, not `txid`: the fabricated-URL detector keys on
+    // `txid=mock-`, and the local test surface must not be mistaken for a
+    // dead link (it is a live, reusable URL).
+    test_txid: input.gatewayTxid,
+    amount: (input.amountCents / 100).toFixed(2),
+    asset: 'USDT',
+    network: input.network || 'trc20',
+    purpose: input.purpose,
+  });
+  return `${base}/wallet/checkout/mock?${params.toString()}`;
+}
+
+/**
+ * True for a checkout URL that was fabricated by mock mode. Such a URL is
+ * never payable, so it must never be handed to a member — in mock mode or in
+ * live mode. The marker is the `mock-` transaction id / `mock=1` flag.
+ */
+export function isFabricatedCheckoutUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return /(^|[?&])txid=mock-/.test(url) || /[?&]mock=1(&|$)/.test(url);
+}
+
+/**
  * Call Pay2Crypto (or mock mode) for a checkout URL, without touching the
  * ledger. Shared by creation and by checkout refresh so both paths speak the
  * exact same contract.
@@ -117,14 +158,19 @@ async function requestGatewayCheckout(input: {
   purpose: PaymentPurpose;
   network?: string;
 }): Promise<{ gatewayTxid: string | null; paymentUrl: string }> {
-  // Gateway config resolves from the DB (console-managed) over the environment,
-  // so a SUPERADMIN can point the rail at a live merchant without a redeploy.
+  // Gateway config resolves from the environment only (env-only contract).
   const gw = await resolveGatewaySettings();
   if (isGatewayMock(gw)) {
     const gatewayTxid = `mock-${randomUUID()}`;
     return {
       gatewayTxid,
-      paymentUrl: `https://checkout.pay2crypto.com/?txid=${gatewayTxid}&mock=1`,
+      paymentUrl: buildMockCheckoutUrl({
+        paymentRef: input.paymentRef,
+        amountCents: input.amountCents,
+        purpose: input.purpose,
+        network: input.network,
+        gatewayTxid,
+      }),
     };
   }
   const body = buildPaymentRequestBody({
@@ -221,6 +267,25 @@ export async function createPayment(
  */
 export const CHECKOUT_FRESH_MINUTES = 50;
 
+/**
+ * Can the stored URL be handed to the member as-is?
+ *
+ * Three ways it can be stale-but-tempting:
+ *  - it was fabricated by mock mode (never payable, in any mode);
+ *  - it is older than the gateway's expiry margin;
+ *  - it points off-origin while we are in mock mode (a leftover live-gateway
+ *    link would drop the member into a real payment page during a review).
+ */
+async function canReuseCheckoutUrl(paymentUrl: string | null, ageMs: number): Promise<boolean> {
+  if (!paymentUrl) return false;
+  if (isFabricatedCheckoutUrl(paymentUrl)) return false;
+  if (ageMs >= CHECKOUT_FRESH_MINUTES * 60_000) return false;
+  const gw = await resolveGatewaySettings();
+  if (!isGatewayMock(gw)) return true;
+  const origin = config.APP_URL.replace(/\/$/, '');
+  return paymentUrl.startsWith(origin);
+}
+
 export async function refreshCheckoutUrl(
   userId: string,
   paymentId: string,
@@ -235,8 +300,8 @@ export async function refreshCheckoutUrl(
     throw ApiError.conflict('Only a pending payment can be checked out', 'PAYMENT_NOT_PENDING');
   }
   const ageMs = Date.now() - new Date(payment.createdAt).getTime();
-  if (payment.paymentUrl && ageMs < CHECKOUT_FRESH_MINUTES * 60_000) {
-    return { paymentUrl: payment.paymentUrl, refreshed: false };
+  if (await canReuseCheckoutUrl(payment.paymentUrl, ageMs)) {
+    return { paymentUrl: payment.paymentUrl as string, refreshed: false };
   }
   const paymentRef = `AGL-${randomUUID()}`;
   const { gatewayTxid, paymentUrl } = await requestGatewayCheckout({
@@ -254,11 +319,17 @@ export async function refreshCheckoutUrl(
 
 /** The member's own payment history, newest first. */
 export async function listMyPayments(userId: string) {
-  return db
+  const payments = await db
     .select()
     .from(schema.payments)
     .where(eq(schema.payments.userId, userId))
     .orderBy(desc(schema.payments.createdAt));
+  // Never serve a fabricated link: the member would click it and land on a
+  // gateway error page that looks like a merchant fault.
+  return payments.map((p) => ({
+    ...p,
+    paymentUrl: isFabricatedCheckoutUrl(p.paymentUrl) ? null : p.paymentUrl,
+  }));
 }
 
 /**

@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   ALLOWED_NETWORKS,
   FEE_CENTS,
+  buildMockCheckoutUrl,
   buildPaymentRequestBody,
+  isFabricatedCheckoutUrl,
   parseNetwork,
   parsePaymentRequestResponse,
 } from '../src/services/payment-service.js';
 import { ApiError } from '../src/lib/errors.js';
+import { config } from '../src/config.js';
 
 /**
  * The Pay2Crypto contract, pinned offline. These two functions are the only
@@ -89,6 +92,76 @@ describe('parseNetwork', () => {
       expect((err as ApiError).status).toBe(400);
       expect((err as ApiError).code).toBe('INVALID_NETWORK');
     }
+  });
+});
+
+/**
+ * The mock rail must never point at the gateway's own hosted checkout.
+ *
+ * Regression guard for the production bug: mock invoices were issued as
+ * `https://checkout.pay2crypto.com/?txid=mock-…&mock=1`, a URL the gateway
+ * had never issued, so it answered "Payment link not found" — a third-party
+ * error page that read like a merchant fault on a rail that had never charged
+ * anybody. A mock invoice belongs on our own origin, labelled as a test.
+ */
+describe('buildMockCheckoutUrl', () => {
+  const input = {
+    paymentRef: 'AGL-abc',
+    amountCents: 2500,
+    purpose: 'REGISTRATION' as const,
+    network: 'trc20',
+    gatewayTxid: 'mock-1234',
+  };
+
+  it('stays on our own origin — never the gateway host', () => {
+    const url = buildMockCheckoutUrl(input);
+    expect(url.startsWith(config.APP_URL)).toBe(true);
+    expect(url).not.toContain('checkout.pay2crypto.com');
+    expect(new URL(url).host).toBe(new URL(config.APP_URL).host);
+  });
+
+  it('lands on the local test-checkout surface', () => {
+    expect(new URL(buildMockCheckoutUrl(input)).pathname).toBe('/wallet/checkout/mock');
+  });
+
+  it('carries the invoice the reviewer needs to check', () => {
+    const params = new URL(buildMockCheckoutUrl(input)).searchParams;
+    expect(params.get('ref')).toBe('AGL-abc');
+    expect(params.get('amount')).toBe('25.00');
+    expect(params.get('asset')).toBe('USDT');
+    expect(params.get('network')).toBe('trc20');
+    expect(params.get('purpose')).toBe('REGISTRATION');
+    expect(params.get('test_txid')).toBe('mock-1234');
+  });
+
+  it('renders the amount in dollars, not cents', () => {
+    const params = new URL(buildMockCheckoutUrl({ ...input, amountCents: 5 })).searchParams;
+    expect(params.get('amount')).toBe('0.05');
+  });
+});
+
+describe('isFabricatedCheckoutUrl', () => {
+  it('flags the old mock links that were handed to members', () => {
+    expect(
+      isFabricatedCheckoutUrl('https://checkout.pay2crypto.com/?txid=mock-abc&mock=1'),
+    ).toBe(true);
+    expect(isFabricatedCheckoutUrl('https://checkout.pay2crypto.com/?txid=mock-abc')).toBe(true);
+  });
+
+  it('does not flag a real gateway checkout', () => {
+    expect(isFabricatedCheckoutUrl('https://checkout.pay2crypto.com/?txid=real123')).toBe(false);
+  });
+
+  it('does not flag our own live test surface', () => {
+    expect(
+      isFabricatedCheckoutUrl('http://localhost:3000/wallet/checkout/mock?test_txid=mock-1'),
+    ).toBe(false);
+  });
+
+  it('is false for empty input', () => {
+    expect(isFabricatedCheckoutUrl(null)).toBe(false);
+    expect(isFabricatedCheckoutUrl(undefined)).toBe(false);
+    expect(isFabricatedCheckoutUrl('')).toBe(false);
   });
 });
 

@@ -166,8 +166,9 @@ async function main() {
     }
   }
 
-  if (!authed) {
-    out('  no read endpoint accepted the token; trying the write path');
+  if (!authed || WANT_CREATE) {
+    if (authed) out('  read endpoints answered; still exercising the write path (--create-probe)');
+    else out('  no read endpoint accepted the token; trying the write path');
     if (!WANT_CREATE) {
       out('  (write probe skipped — rerun with --create-probe to exercise it)');
     } else {

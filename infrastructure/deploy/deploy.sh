@@ -26,9 +26,11 @@ API_PORT="4001"
 WEB_PORT="3200"                     # 3000 belongs to another app on this host
 API_HEALTH="http://127.0.0.1:${API_PORT}/health"
 WEB_HEALTH="http://127.0.0.1:${WEB_PORT}/"
-# One-shot diagnostics that need shell access on the box (credential liveness,
-# gateway contract drift). Bump this id to run one again; "" disables it.
-DIAG_RUN_ID="p2c-probe-1"
+# One-shot jobs that need shell access on the box (credential liveness, gateway
+# contract drift, clearing dead invoices). Bump an id to run one again; "" turns
+# it off. Each id runs exactly once — the sentinel records the last id that ran.
+DIAG_P2C_ID="p2c-probe-2"
+DIAG_PAYMENTS_ID="cleanup-1"
 # Absolute node/pnpm first: webhook/cron shells carry a minimal PATH.
 export PATH="/www/server/nodejs/v24.18.0/bin:$PATH"
 # ─────────────────────────────────────────────────────────
@@ -103,18 +105,21 @@ NEW_COMMIT="$(git rev-parse HEAD)"
 
 # ── One-shot diagnostics ─────────────────────────────────
 # Run AFTER the reset (the script must exist on disk) and BEFORE the
-# early-exit below, so a diagnostic still runs when there is nothing to
-# deploy. The sentinel records the last run-id that executed, so each id runs
-# exactly once. A failing diagnostic never fails the deploy.
-DIAG_SCRIPT="$APP_DIR/database/scripts/diagnose-p2c.mjs"
-DIAG_SENTINEL="/tmp/aglotrends-diag.done"
-if [ -n "$DIAG_RUN_ID" ] && [ -f "$DIAG_SCRIPT" ]; then
-  if [ "$(cat "$DIAG_SENTINEL" 2>/dev/null || echo none)" != "$DIAG_RUN_ID" ]; then
-    log "running diagnostic $DIAG_RUN_ID"
-    ( node "$DIAG_SCRIPT" --create-probe ) || log "diagnostic exited non-zero (continuing)"
-    echo "$DIAG_RUN_ID" > "$DIAG_SENTINEL"
+# early-exit below, so a job still runs when there is nothing to deploy.
+# A failing job never fails the deploy.
+run_diag() {
+  _name="$1"; _script="$2"; _id="$3"; shift 3
+  [ -n "$_id" ] || return 0
+  [ -f "$_script" ] || { log "diagnostic $_name: script missing, skipping"; return 0; }
+  _sentinel="/tmp/aglotrends-diag-$_name.done"
+  if [ "$(cat "$_sentinel" 2>/dev/null || echo none)" != "$_id" ]; then
+    log "running diagnostic $_name ($_id)"
+    ( node "$_script" "$@" ) || log "diagnostic $_name exited non-zero (continuing)"
+    echo "$_id" > "$_sentinel"
   fi
-fi
+}
+run_diag p2c "$APP_DIR/database/scripts/diagnose-p2c.mjs" "$DIAG_P2C_ID" --create-probe
+run_diag payments "$APP_DIR/database/scripts/expire-mock-payments.mjs" "$DIAG_PAYMENTS_ID" --apply
 
 # The commit that was last BUILT and deployed successfully. `deploy.log` is
 # appended to only after a healthy deploy, so it is the ground truth for

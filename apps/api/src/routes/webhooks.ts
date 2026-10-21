@@ -58,6 +58,7 @@ webhooksRouter.post(
         // that signs per-account rather than per-webhook.
         secrets: [gw.webhookSecret, gw.token],
         deliveryId,
+        event: eventHeader,
       });
       if (result.ok) {
         authenticated = true;
@@ -74,6 +75,7 @@ webhooksRouter.post(
             reason: result.reason,
             skewSeconds: result.skewSeconds,
             rawBodyAvailable: rawBody !== undefined,
+            signature: signatureHeader,
           },
           'Pay2Crypto callback signature rejected',
         );
@@ -82,7 +84,12 @@ webhooksRouter.post(
         // capture hatch is on) to derive the scheme instead of guessing it.
         if (config.PAY2CRYPTO_WEBHOOK_CAPTURE === '1') {
           logger.warn(
-            { event: eventHeader, delivery: deliveryId, body: (rawBody ?? '').slice(0, 2000) },
+            {
+              event: eventHeader,
+              delivery: deliveryId,
+              signature: signatureHeader,
+              body: (rawBody ?? '').slice(0, 2000),
+            },
             'Pay2Crypto callback body captured for scheme analysis',
           );
         }

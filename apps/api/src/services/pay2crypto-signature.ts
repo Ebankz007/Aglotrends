@@ -81,6 +81,9 @@ export const SIGNING_SCHEMES = [
   'ts\\nbody',
   'delivery.ts.body',
   'ts.delivery.body',
+  'delivery.body',
+  'ts.event.body',
+  'event.ts.body',
 ] as const;
 
 export type SigningScheme = (typeof SIGNING_SCHEMES)[number];
@@ -102,7 +105,7 @@ function canonicalise(rawBody: string): string | null {
 
 function signingString(
   scheme: SigningScheme,
-  parts: { timestamp: string; body: string; deliveryId?: string },
+  parts: { timestamp: string; body: string; deliveryId?: string; event?: string },
 ): string {
   switch (scheme) {
     case 'ts.body':
@@ -123,6 +126,12 @@ function signingString(
       return `${parts.deliveryId ?? ''}.${parts.timestamp}.${parts.body}`;
     case 'ts.delivery.body':
       return `${parts.timestamp}.${parts.deliveryId ?? ''}.${parts.body}`;
+    case 'delivery.body':
+      return `${parts.deliveryId ?? ''}.${parts.body}`;
+    case 'ts.event.body':
+      return `${parts.timestamp}.${parts.event ?? ''}.${parts.body}`;
+    case 'event.ts.body':
+      return `${parts.event ?? ''}.${parts.timestamp}.${parts.body}`;
   }
 }
 
@@ -163,6 +172,8 @@ export interface VerifySignatureInput {
   secrets: (string | undefined | null)[];
   /** The `x-p2c-delivery` id, for schemes that bind it. */
   deliveryId?: string;
+  /** The `x-p2c-event` name, for schemes that bind it. */
+  event?: string;
   /** Now, in unix milliseconds. Injectable so the tests are not clock-bound. */
   now?: number;
   /** How far the timestamp may drift, in seconds. Default 600. */
@@ -221,6 +232,7 @@ export function verifyP2CSignature(input: VerifySignatureInput): VerifySignature
           timestamp,
           body: variant.body,
           deliveryId: input.deliveryId,
+          event: input.event,
         });
         if (secureEqualHex(hmacHex(secret, message), parsed.v1)) {
           return {

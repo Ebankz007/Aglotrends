@@ -34,10 +34,18 @@ DIAG_PAYMENTS_ID="cleanup-1"
 # Callback reconciliation: cross-references our ledger against the gateway's
 # own record for every recent payment (read-only — it creates no request).
 DIAG_WEBHOOK_ID="wh-2"
+# What does the gateway say about its own webhooks and deliveries?
+DIAG_WEBHOOK_CONFIG_ID="whcfg-1"
 # Reconcile: what does the GATEWAY say about our PENDING invoices? Read-only
 # by default (the script only settles when it is given --apply AND the gateway
 # confirms the money moved).
 DIAG_RECONCILE_ID="rec-1"
+# ONE-SHOT, ARMED. Settles only what the gateway itself reports as paid, and
+# releases only the invoices the gateway reports as expired-and-unpaid. It
+# routes through the same confirmation the live callback uses, so the fee
+# record, the wallet credit and the registration compensation are identical
+# either way. REMOVE THIS SLOT once the callback is proven end to end.
+DIAG_RECONCILE_APPLY_ID="rec-apply-1"
 # The USDT rails the merchant account can actually serve. The account is the
 # authority: a rail with no receiving address on the gateway is refused by the
 # gateway, so offering it breaks the member's payment. Verified against the
@@ -146,6 +154,8 @@ run_diag p2c "$APP_DIR/database/scripts/diagnose-p2c.mjs" "$DIAG_P2C_ID"
 run_diag payments "$APP_DIR/database/scripts/expire-mock-payments.mjs" "$DIAG_PAYMENTS_ID" --apply
 run_diag webhook "$APP_DIR/database/scripts/diagnose-webhook.mjs" "$DIAG_WEBHOOK_ID"
 run_diag reconcile "$APP_DIR/database/scripts/reconcile-payment.mjs" "$DIAG_RECONCILE_ID"
+run_diag reconcile_apply "$APP_DIR/database/scripts/reconcile-payment.mjs" "$DIAG_RECONCILE_APPLY_ID" --apply
+run_diag webhook_config "$APP_DIR/database/scripts/diagnose-webhook-config.mjs" "$DIAG_WEBHOOK_CONFIG_ID"
 
 # ── Publish the console credential into the runtime env ──
 # The API is env-only: it reads PAY2CRYPTO_* from apps/api/.env and never

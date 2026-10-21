@@ -81,6 +81,16 @@ function gatewaySaysConfirmed(record) {
   return Boolean(record.paid_at);
 }
 
+/** The gateway's own words for "this request is dead and unpaid". */
+function gatewaySaysDead(record) {
+  if (!record || typeof record !== 'object') return false;
+  const status = String(record.status ?? '').toLowerCase();
+  if (!/expire|cancel|fail/.test(status)) return false;
+  // A dead status with money attached is not a dead invoice - it is a
+  // payment that needs a human. Never release that automatically.
+  return !record.paid_at && !record.submitted_hash;
+}
+
 async function main() {
   const apiEnv = parseEnv(API_ENV);
   const dbEnv = parseEnv(DB_ENV);
@@ -165,6 +175,7 @@ async function main() {
   }
 
   const confirmedTargets = [];
+  const deadTargets = [];
   for (const p of pending) {
     let record = gatewayRecords.find((r) => r?.reference === p.payment_ref);
     if (!record && p.gateway_txid) {
@@ -181,25 +192,29 @@ async function main() {
       }
     }
     const says = gatewaySaysConfirmed(record);
+    const dead = gatewaySaysDead(record);
     out(
       `  ${p.payment_ref.slice(0, 24)} -> gateway: ${record ? String(record.status ?? '?') : 'NOT FOUND'}` +
-        `${says ? '  CONFIRMED' : ''}` +
+        `${says ? '  CONFIRMED' : ''}${dead ? '  DEAD' : ''}` +
         `${record?.amount !== undefined ? ` amount=${record.amount}` : ''}` +
+        `${record?.settlement ? ` settlement=${record.settlement}` : ''}` +
         `${record?.paid_at ? ` paid_at=${record.paid_at}` : ''}` +
         `${record?.submitted_hash ? ` hash=${String(record.submitted_hash).slice(0, 18)}` : ''}`,
     );
     if (says) confirmedTargets.push({ payment: p, record });
+    else if (dead) deadTargets.push({ payment: p, record });
   }
 
-  if (confirmedTargets.length === 0) {
+  if (confirmedTargets.length === 0 && deadTargets.length === 0) {
     out('== verdict ==');
-    out('  The gateway does not report any of these as confirmed. Nothing was written.');
+    out('  The gateway confirms none of these and reports none as dead. Nothing was written.');
     return;
   }
 
   if (!APPLY) {
     out('== verdict ==');
     out(`  ${confirmedTargets.length} payment(s) the gateway calls confirmed.`);
+    out(`  ${deadTargets.length} payment(s) the gateway calls dead (expired, unpaid).`);
     out('  DRY RUN — pass --apply to settle them through the normal confirmation path.');
     return;
   }
@@ -210,7 +225,7 @@ async function main() {
     return;
   }
 
-  const { confirmPaymentManually } = await import(API_DIST);
+  const { confirmPaymentManually, cancelPendingPayment } = await import(API_DIST);
 
   out('== applying ==');
   for (const { payment, record } of confirmedTargets) {
@@ -218,11 +233,19 @@ async function main() {
     try {
       const result = await confirmPaymentManually(payment.id, txHash);
       out(
-        `  ${payment.payment_ref} applied=${result.applied} purpose=${result.purpose} ` +
+        `  SETTLED  ${payment.payment_ref} applied=${result.applied} purpose=${result.purpose} ` +
           `compensation=${result.compensationRun} reason=${result.reason ?? '-'}`,
       );
     } catch (err) {
       out(`  ${payment.payment_ref} FAILED: ${err?.message ?? err}`);
+    }
+  }
+  for (const { payment } of deadTargets) {
+    try {
+      await cancelPendingPayment(payment.id);
+      out(`  RELEASED ${payment.payment_ref} PENDING -> EXPIRED (the gateway expired it unpaid)`);
+    } catch (err) {
+      out(`  ${payment.payment_ref} RELEASE FAILED: ${err?.message ?? err}`);
     }
   }
 

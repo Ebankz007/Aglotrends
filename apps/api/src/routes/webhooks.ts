@@ -79,20 +79,6 @@ webhooksRouter.post(
           },
           'Pay2Crypto callback signature rejected',
         );
-        // Evidence window: the signing string is not published by the vendor,
-        // so when nothing matches we log the body (once, and only while the
-        // capture hatch is on) to derive the scheme instead of guessing it.
-        if (config.PAY2CRYPTO_WEBHOOK_CAPTURE === '1') {
-          logger.warn(
-            {
-              event: eventHeader,
-              delivery: deliveryId,
-              signature: signatureHeader,
-              body: (rawBody ?? '').slice(0, 2000),
-            },
-            'Pay2Crypto callback body captured for scheme analysis',
-          );
-        }
       }
     }
 
@@ -108,6 +94,21 @@ webhooksRouter.post(
     }
 
     if (!authenticated) {
+      // Evidence window: the signing string is not published by the vendor, so
+      // when nothing matches we log the body to derive the scheme instead of
+      // guessing it. Only while the capture hatch is on, and only on the
+      // unauthenticated path - a verified callback needs no forensics.
+      if (config.PAY2CRYPTO_WEBHOOK_CAPTURE === '1') {
+        logger.warn(
+          {
+            event: eventHeader,
+            delivery: deliveryId,
+            signature: signatureHeader ?? null,
+            body: (rawBody ?? '').slice(0, 2000),
+          },
+          'Pay2Crypto callback body captured for scheme analysis',
+        );
+      }
       throw ApiError.unauthorized('Webhook signature rejected', 'UNAUTHORIZED');
     }
 

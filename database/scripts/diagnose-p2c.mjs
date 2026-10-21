@@ -238,6 +238,28 @@ async function main() {
     }
   }
 
+  // The address pool. A pending request OCCUPIES a receiving address, so the
+  // number of addresses per network IS the number of members who can pay at
+  // the same time. The operator needs this number to size the account.
+  out('== address pool probe ==');
+  for (const path of [
+    '/v1/wallet-addresses',
+    '/v1/addresses',
+    '/v1/wallet',
+    '/v1/receiving-addresses',
+  ]) {
+    try {
+      const res = await fetch(`${apiUrl}${path}`, { headers, signal: timeout() });
+      const text = await res.text();
+      out(`  GET ${path} -> ${res.status}`);
+      if (res.status >= 200 && res.status < 300) {
+        out(`      ${text.slice(0, 400)}`);
+      }
+    } catch (err) {
+      out(`  GET ${path} -> ERROR ${err.message}`);
+    }
+  }
+
   if (!authed || WANT_CREATE) {
     if (authed) out('  read endpoints answered; still exercising the write path (--create-probe)');
     else out('  no read endpoint accepted the token; trying the write path');

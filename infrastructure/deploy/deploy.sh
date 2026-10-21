@@ -33,7 +33,11 @@ DIAG_P2C_ID="p2c-probe-5"
 DIAG_PAYMENTS_ID="cleanup-1"
 # Callback reconciliation: cross-references our ledger against the gateway's
 # own record for every recent payment (read-only — it creates no request).
-DIAG_WEBHOOK_ID="wh-1"
+DIAG_WEBHOOK_ID="wh-2"
+# Reconcile: what does the GATEWAY say about our PENDING invoices? Read-only
+# by default (the script only settles when it is given --apply AND the gateway
+# confirms the money moved).
+DIAG_RECONCILE_ID="rec-1"
 # The USDT rails the merchant account can actually serve. The account is the
 # authority: a rail with no receiving address on the gateway is refused by the
 # gateway, so offering it breaks the member's payment. Verified against the
@@ -141,6 +145,7 @@ run_diag() {
 run_diag p2c "$APP_DIR/database/scripts/diagnose-p2c.mjs" "$DIAG_P2C_ID"
 run_diag payments "$APP_DIR/database/scripts/expire-mock-payments.mjs" "$DIAG_PAYMENTS_ID" --apply
 run_diag webhook "$APP_DIR/database/scripts/diagnose-webhook.mjs" "$DIAG_WEBHOOK_ID"
+run_diag reconcile "$APP_DIR/database/scripts/reconcile-payment.mjs" "$DIAG_RECONCILE_ID"
 
 # ── Publish the console credential into the runtime env ──
 # The API is env-only: it reads PAY2CRYPTO_* from apps/api/.env and never

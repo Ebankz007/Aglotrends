@@ -61,8 +61,24 @@ log "resetting to origin/$BRANCH…"
 git reset --hard "origin/$BRANCH" || fail "git reset failed"
 
 NEW_COMMIT="$(git rev-parse HEAD)"
-if [ "$NEW_COMMIT" = "$PREV_COMMIT" ]; then
-  log "already on $NEW_COMMIT — verifying health only, no rebuild"
+
+# The commit that was last BUILT and deployed successfully. `deploy.log` is
+# appended to only after a healthy deploy, so it is the ground truth for
+# "what is actually running" — NOT `git rev-parse HEAD`.
+#
+# Why this exists: the cron wrapper used to `git reset --hard origin/main`
+# BEFORE calling this script, which made the "commit changed?" check below
+# always false, so the build was silently skipped and the server kept serving
+# a stale bundle. Comparing against the last DEPLOYED commit is immune to
+# that: if the tree says X but we last deployed Y, we rebuild.
+LAST_DEPLOYED=""
+if [ -f deploy.log ]; then
+  LAST_DEPLOYED="$(sed -n 's/^\([0-9a-f]\{40\}\).*/\1/p' deploy.log 2>/dev/null | tail -n 1 || true)"
+fi
+log "last deployed commit: ${LAST_DEPLOYED:-none}"
+
+if [ "$NEW_COMMIT" = "$PREV_COMMIT" ] && [ "$NEW_COMMIT" = "$LAST_DEPLOYED" ]; then
+  log "already on $NEW_COMMIT and already built — verifying health only, no rebuild"
   if curl -sf -m 5 "$API_HEALTH" >/dev/null 2>&1 && curl -sf -m 5 "$WEB_HEALTH" >/dev/null 2>&1; then
     log "HEALTHY on $NEW_COMMIT — nothing to do"
     exit 0
@@ -76,7 +92,12 @@ if [ "$NEW_COMMIT" = "$PREV_COMMIT" ]; then
   fi
   fail "UNHEALTHY and already on latest — needs a human, not a rebuild"
 fi
-log "deploying $PREV_COMMIT → $NEW_COMMIT"
+
+if [ "$NEW_COMMIT" = "$PREV_COMMIT" ]; then
+  log "tree is at $NEW_COMMIT but the last build was ${LAST_DEPLOYED:-none} — forcing rebuild"
+else
+  log "deploying $PREV_COMMIT → $NEW_COMMIT"
+fi
 
 rollback() {
   log "health check FAILED — rolling back to $PREV_COMMIT"

@@ -40,12 +40,18 @@ DIAG_WEBHOOK_CONFIG_ID="whcfg-1"
 # by default (the script only settles when it is given --apply AND the gateway
 # confirms the money moved).
 DIAG_RECONCILE_ID="rec-1"
-# ONE-SHOT, ARMED. Settles only what the gateway itself reports as paid, and
-# releases only the invoices the gateway reports as expired-and-unpaid. It
-# routes through the same confirmation the live callback uses, so the fee
-# record, the wallet credit and the registration compensation are identical
-# either way. REMOVE THIS SLOT once the callback is proven end to end.
-DIAG_RECONCILE_APPLY_ID="rec-apply-1"
+# ── The reconciliation loop ─────────────────────────────────────
+# The callback is the fast path; this is the ground truth path. The gateway
+# delivered twice in four hours and NOT AT ALL for the one payment that
+# mattered, and it exposes no API for its own webhook state - so a dead
+# webhook would strand members silently, forever. Every cycle we ask the
+# gateway what it says about OUR references and act only on its explicit word:
+# confirmed + amount/network/settlement agree -> settle; expired-and-unpaid ->
+# release; ambiguous -> touch nothing.
+#
+# The script throttles itself, because the deploy cron runs every 2 minutes
+# and the gateway is a third party with its own rate limits.
+RECONCILE_EVERY_MIN=10
 # The USDT rails the merchant account can actually serve. The account is the
 # authority: a rail with no receiving address on the gateway is refused by the
 # gateway, so offering it breaks the member's payment. Verified against the
@@ -154,8 +160,19 @@ run_diag p2c "$APP_DIR/database/scripts/diagnose-p2c.mjs" "$DIAG_P2C_ID"
 run_diag payments "$APP_DIR/database/scripts/expire-mock-payments.mjs" "$DIAG_PAYMENTS_ID" --apply
 run_diag webhook "$APP_DIR/database/scripts/diagnose-webhook.mjs" "$DIAG_WEBHOOK_ID"
 run_diag reconcile "$APP_DIR/database/scripts/reconcile-payment.mjs" "$DIAG_RECONCILE_ID"
-run_diag reconcile_apply "$APP_DIR/database/scripts/reconcile-payment.mjs" "$DIAG_RECONCILE_APPLY_ID" --apply
 run_diag webhook_config "$APP_DIR/database/scripts/diagnose-webhook-config.mjs" "$DIAG_WEBHOOK_CONFIG_ID"
+
+# ── The reconciliation loop ───────────────────────────────────
+# Standing job, not a one-shot: it runs on every cycle and throttles itself.
+# It is placed here (after the reset, before the early-exit) so a member is
+# activated even when there is nothing to deploy.
+if [ -f "$APP_DIR/database/scripts/reconcile-payment.mjs" ]; then
+  log "reconciling the payment ledger against the gateway."
+  ( node "$APP_DIR/database/scripts/reconcile-payment.mjs" --apply --throttle-min="$RECONCILE_EVERY_MIN" ) \
+    || log "reconcile exited non-zero (continuing)"
+else
+  log "reconcile: script missing, skipping"
+fi
 
 # ── Publish the console credential into the runtime env ──
 # The API is env-only: it reads PAY2CRYPTO_* from apps/api/.env and never

@@ -25,6 +25,7 @@ async function getProviderAccess(userId: string, providerId: string) {
     .orderBy(desc(schema.userSubscriptions.expiresAt));
   if (subs.length === 0) return { hasAccess: false, inGrace: false, expiresAt: null };
   const latest = subs[0];
+  if (!latest) return { hasAccess: false, inGrace: false, expiresAt: null };
   const expiresAt = new Date(latest.expiresAt);
   if (expiresAt > now) return { hasAccess: true, inGrace: false, expiresAt };
   const graceUntil = new Date(expiresAt.getTime() + GRACE_MS);

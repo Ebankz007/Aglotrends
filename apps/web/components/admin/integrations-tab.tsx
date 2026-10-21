@@ -6,7 +6,6 @@ import { useAsync } from "@/lib/hooks";
 import {
   ApiError,
   fetchIntegrations,
-  saveGatewaySettings,
   saveIntegrations,
   sendTestEmail,
   type GatewaySettingsDto,
@@ -81,6 +80,28 @@ function ChannelBadge({ enabled, configured }: { enabled: boolean; configured: b
   return configured ? <Badge tone="ok">Active</Badge> : <Badge tone="warn">Not configured</Badge>;
 }
 
+/** Read-only label/value row for environment-owned configuration. */
+function StatusRow({
+  label,
+  value,
+  mono,
+  tone,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  tone?: "ok" | "warn" | "danger";
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-b border-white/5 pb-2">
+      <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-mist">{label}</dt>
+      <dd className={`text-right text-sm ${mono ? "font-mono text-xs" : "text-soft"}`}>
+        {tone ? <Badge tone={tone}>{value}</Badge> : value}
+      </dd>
+    </div>
+  );
+}
+
 /**
  * The APIs manager — every outbound credential the platform uses, in one place:
  * the payment gateway, SMTP email, WhatsApp Cloud API, and the Telegram bot.
@@ -96,12 +117,7 @@ export function IntegrationsTab() {
   const [gateway, setGateway] = useState<GatewaySettingsDto | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationsDto | null>(null);
 
-  // Payment-gateway secrets.
-  const [gwToken, setGwToken] = useState("");
-  const [gwSecret, setGwSecret] = useState("");
-  const [clearGwToken, setClearGwToken] = useState(false);
-  const [clearGwSecret, setClearGwSecret] = useState(false);
-
+  // Payment-gateway secrets are environment-only — there is nothing to edit here.
   // Email secrets — one per provider; only the selected one is shown.
   const [smtpUrl, setSmtpUrl] = useState("");
   const [clearSmtpUrl, setClearSmtpUrl] = useState(false);
@@ -122,10 +138,6 @@ export function IntegrationsTab() {
     }
   }, [data]);
 
-  function patchGateway(changes: Partial<GatewaySettingsDto>) {
-    setGateway((g) => (g ? { ...g, ...changes } : g));
-  }
-
   function patchIntegrations(changes: Partial<IntegrationsDto>) {
     setIntegrations((i) => (i ? { ...i, ...changes } : i));
   }
@@ -141,30 +153,6 @@ export function IntegrationsTab() {
     } finally {
       setBusy(null);
     }
-  }
-
-  async function submitGateway(event: React.FormEvent) {
-    event.preventDefault();
-    if (!gateway) return;
-    await run("gateway", async () => {
-      const saved = await saveGatewaySettings({
-        provider: gateway.provider,
-        apiUrl: gateway.apiUrl,
-        walletAddress: gateway.walletAddress,
-        network: gateway.network,
-        asset: gateway.asset,
-        forceMock: gateway.forceMock,
-        // undefined = leave as-is; null = clear; string = set.
-        token: clearGwToken ? null : gwToken.length > 0 ? gwToken : undefined,
-        webhookSecret: clearGwSecret ? null : gwSecret.length > 0 ? gwSecret : undefined,
-      });
-      setGateway(saved);
-      setGwToken("");
-      setGwSecret("");
-      setClearGwToken(false);
-      setClearGwSecret(false);
-      setNote({ tone: "ok", text: "Payment gateway saved." });
-    });
   }
 
   async function submitEmail(event: React.FormEvent) {
@@ -256,9 +244,10 @@ export function IntegrationsTab() {
       )}
 
       <p className="text-sm text-mist">
-        Every outbound API credential in one place. Values saved here override the server
-        environment; clearing a secret falls back to <code>.env</code>. Secrets are write-only — the
-        console can confirm one is set, never read it back.
+        Every outbound API credential in one place. The payment gateway is environment-only and shown
+        read-only; for the other channels, values saved here override the server environment and
+        clearing a secret falls back to <code>.env</code>. Secrets are write-only — the console can
+        confirm one is set, never read it back.
       </p>
 
       {/* ---------------------------------------------------- payment gateway */}
@@ -273,75 +262,37 @@ export function IntegrationsTab() {
         }
       >
         <p className="mb-4 text-sm text-mist">
-          Where the rail settles and which merchant credentials it uses.
+          The Pay2Crypto rail is owned by the server environment — it is not editable here, by
+          design. Change <code>PAY2CRYPTO_API_URL</code>, <code>PAY2CRYPTO_TOKEN</code> and{" "}
+          <code>PAY2CRYPTO_WEBHOOK_SECRET</code> in the API server&apos;s <code>.env</code> and
+          restart it.
         </p>
-        <form onSubmit={submitGateway} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field
-            label="Provider"
-            value={gateway.provider}
-            onChange={(v) => patchGateway({ provider: v })}
-            placeholder="pay2crypto"
-          />
-          <Field
-            label="API base URL"
-            value={gateway.apiUrl}
-            onChange={(v) => patchGateway({ apiUrl: v })}
-            placeholder="https://api.pay2crypto.com"
-          />
-          <Field
-            label="Settlement wallet address"
-            value={gateway.walletAddress}
-            onChange={(v) => patchGateway({ walletAddress: v })}
-            placeholder="TQn9… (TRC20)"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Field
-              label="Network"
-              value={gateway.network}
-              onChange={(v) => patchGateway({ network: v })}
-              placeholder="trc20"
-            />
-            <Field
-              label="Asset"
-              value={gateway.asset}
-              onChange={(v) => patchGateway({ asset: v })}
-              placeholder="USDT"
-            />
-          </div>
-
-          <SecretField
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+          <StatusRow label="Provider" value={gateway.provider} />
+          <StatusRow label="API base URL" value={gateway.apiUrl || "—"} mono />
+          <StatusRow label="Settlement wallet" value={gateway.walletAddress || "—"} mono />
+          <StatusRow label="Default network" value={gateway.network.toUpperCase()} />
+          <StatusRow label="Asset" value={gateway.asset} />
+          <StatusRow
             label="Merchant token"
-            hasValue={gateway.hasToken}
-            source={gateway.tokenSource}
-            value={gwToken}
-            onChange={setGwToken}
-            clearing={clearGwToken}
-            onClearingChange={setClearGwToken}
+            value={gateway.hasToken ? "Set" : "Missing"}
+            tone={gateway.hasToken ? "ok" : "danger"}
           />
-          <SecretField
+          <StatusRow
             label="Webhook secret"
-            hasValue={gateway.hasWebhookSecret}
-            source={gateway.webhookSecretSource}
-            value={gwSecret}
-            onChange={setGwSecret}
-            clearing={clearGwSecret}
-            onClearingChange={setClearGwSecret}
+            value={gateway.hasWebhookSecret ? "Set" : "Missing"}
+            tone={gateway.hasWebhookSecret ? "ok" : "danger"}
           />
-
-          <div className="sm:col-span-2">
-            <Toggle
-              label="Force mock mode"
-              hint="Simulate payments instead of hitting the live rail. Never enable this in production."
-              checked={gateway.forceMock}
-              onChange={(v) => patchGateway({ forceMock: v })}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <ActionButton type="submit" disabled={busy === "gateway"}>
-              {busy === "gateway" ? "Saving…" : "Save payment gateway"}
-            </ActionButton>
-          </div>
-        </form>
+          <StatusRow
+            label="Mock mode"
+            value={gateway.mockActive ? "Active" : "Off"}
+            tone={gateway.mockActive ? "warn" : "ok"}
+          />
+        </dl>
+        <p className="mt-4 text-xs text-mist">
+          Members pick their own rail (TRC20 / ERC20 / BEP20) at checkout. The values above are the
+          rail defaults, not a restriction.
+        </p>
       </Panel>
 
       {/* ------------------------------------------------------------- email */}

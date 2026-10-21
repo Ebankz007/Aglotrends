@@ -228,6 +228,15 @@ export interface SignalDto {
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Premium Signals: FREE signals are open to every member, PREMIUM need a subscription. */
+  visibility?: "FREE" | "PREMIUM";
+  /** Optional chart image / chart link attached to the signal. */
+  chartImageUrl?: string | null;
+  chartLink?: string | null;
+  /** Server marks a locked PREMIUM signal as a teaser (no price levels). */
+  teaser?: boolean;
+  /** Server marks a subscriber inside the 7-day grace window. */
+  grace?: boolean;
 }
 
 export interface BrokerLinkDto {

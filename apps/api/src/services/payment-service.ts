@@ -18,6 +18,25 @@ const MAX_PAYMENT_CENTS = 100_000_000; // $1,000,000
 export const PURPOSES = ['REGISTRATION', 'DEPOSIT'] as const;
 export type PaymentPurpose = (typeof PURPOSES)[number];
 
+/**
+ * The USDT rails we accept. The client may PICK a rail, but the server owns
+ * the list: anything outside this set is rejected, not silently coerced.
+ */
+export const ALLOWED_NETWORKS = ['trc20', 'erc20', 'bep20'] as const;
+export type PaymentNetwork = (typeof ALLOWED_NETWORKS)[number];
+
+/** Validate a client-chosen rail. Defaults to TRC20 when omitted or blank. */
+export function parseNetwork(value: string | null | undefined): PaymentNetwork {
+  const raw = (value ?? '').trim().toLowerCase() || 'trc20';
+  if (!(ALLOWED_NETWORKS as readonly string[]).includes(raw)) {
+    throw ApiError.badRequest(
+      `Unsupported payment network: ${raw}. Allowed: ${ALLOWED_NETWORKS.join(', ')}`,
+      'INVALID_NETWORK',
+    );
+  }
+  return raw as PaymentNetwork;
+}
+
 export interface PaymentRequestBody {
   amount: string;
   asset: string;
@@ -167,7 +186,7 @@ export async function createPayment(
   const grossCents = (netCents as number) + feeCents;
 
   const paymentRef = `AGL-${randomUUID()}`;
-  const selectedNetwork = (network || 'trc20').toLowerCase();
+  const selectedNetwork = parseNetwork(network);
   const { gatewayTxid, paymentUrl } = await requestGatewayCheckout({
     paymentRef,
     amountCents: grossCents,

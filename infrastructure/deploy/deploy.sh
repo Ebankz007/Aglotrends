@@ -32,6 +32,41 @@ export PATH="/www/server/nodejs/v24.18.0/bin:$PATH"
 log() { echo "[deploy $(date '+%Y-%m-%dT%H:%M:%S')] $1"; }
 fail() { log "FAILED: $1"; exit 1; }
 
+# ── Run lock ─────────────────────────────────────────────
+# The cron poll fires every 2 minutes; a full build takes longer than that.
+# Without a lock, two runs race: one rebuilds while the other resets the tree
+# mid-build, and the server ends up serving a half-written bundle. `mkdir` is
+# atomic on POSIX, so it is a reliable lock; a stale lock (holder killed
+# mid-deploy) is detected by PID and cleared.
+LOCK_DIR="/tmp/aglotrends-deploy.lock"
+
+acquire_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo $$ > "$LOCK_DIR/pid"
+    return 0
+  fi
+  if [ -f "$LOCK_DIR/pid" ]; then
+    holder="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")"
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      log "another deploy is already running (pid $holder) — skipping this run"
+      return 1
+    fi
+    log "clearing stale lock from pid ${holder:-unknown}"
+    rm -rf "$LOCK_DIR"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      echo $$ > "$LOCK_DIR/pid"
+      return 0
+    fi
+  fi
+  log "another deploy is already running — skipping this run"
+  return 1
+}
+
+release_lock() { rm -rf "$LOCK_DIR"; }
+
+acquire_lock || exit 0
+trap 'release_lock' EXIT INT TERM
+
 # (Re)start both processes with a FRESH environment. Never `pm2 restart`:
 # it preserves the old env, so a changed .env would silently not apply.
 start_processes() {
@@ -99,11 +134,31 @@ else
   log "deploying $PREV_COMMIT → $NEW_COMMIT"
 fi
 
+# Build the web bundle into a staging dir, then swap it in. `next build` wipes
+# its output directory, so building straight into `.next` would delete the
+# chunks the live server is serving. The swap only happens after a clean
+# build; if anything is missing, we fail BEFORE touching the live bundle.
+WEB_DIR="$APP_DIR/apps/web"
+STAGE_DIR=".next-staging"
+
+build_web_bundle() {
+  rm -rf "$WEB_DIR/$STAGE_DIR"
+  NEXT_DIST_DIR="$STAGE_DIR" pnpm --filter @aglotrends/web build || return 1
+  [ -d "$WEB_DIR/$STAGE_DIR" ] || { log "web build produced no $STAGE_DIR — live bundle left untouched"; return 1; }
+  rm -rf "$WEB_DIR/.next.previous"
+  if [ -d "$WEB_DIR/.next" ]; then
+    mv "$WEB_DIR/.next" "$WEB_DIR/.next.previous" || return 1
+  fi
+  mv "$WEB_DIR/$STAGE_DIR" "$WEB_DIR/.next" || return 1
+  rm -rf "$WEB_DIR/.next.previous"
+  return 0
+}
+
 rollback() {
   log "health check FAILED — rolling back to $PREV_COMMIT"
   git reset --hard "$PREV_COMMIT"
   pnpm --filter @aglotrends/api build >/dev/null 2>&1 || true
-  pnpm --filter @aglotrends/web build >/dev/null 2>&1 || true
+  build_web_bundle >/dev/null 2>&1 || true
   start_processes >/dev/null 2>&1 || true
   fail "rolled back to $PREV_COMMIT — inspect the server, then push a fix"
 }
@@ -118,7 +173,10 @@ log "building…"
 pnpm --filter @aglotrends/engine build || fail "engine build failed"
 pnpm --filter @aglotrends/database build || fail "database build failed"
 pnpm --filter @aglotrends/api build || fail "api build failed"
-pnpm --filter @aglotrends/web build || fail "web build failed"
+
+log "building web…"
+build_web_bundle || fail "web build failed"
+log "web bundle swapped into place."
 
 log "restarting services (fresh env)…"
 start_processes || fail "process start failed"

@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { PLATFORM_FEE_CENTS } from '@aglotrends/engine';
 import { config } from '../config.js';
 import { db, schema } from '../db.js';
+import { ApiError } from '../lib/errors.js';
 import { decryptSecret, encryptSecret, encryptionAvailable, isEncrypted } from '../lib/crypto.js';
 
 /**
@@ -41,8 +42,6 @@ export async function setSetting(key: string, value: unknown): Promise<void> {
 }
 
 /* ---------------------------------------------------------- payment gateway */
-
-export const GATEWAY_KEY = 'payment.gateway';
 
 export interface GatewaySettings {
   provider: string;
@@ -150,9 +149,14 @@ export interface GatewaySettingsInput {
   webhookSecret?: string | null;
 }
 
-export async function saveGatewaySettings(input: GatewaySettingsInput): Promise<GatewaySettingsView> {
-  // Env-only mode: gateway settings are not editable from console, matching COPINEX
-  throw new Error('Gateway settings are environment-only and cannot be modified via console');
+export async function saveGatewaySettings(_input: GatewaySettingsInput): Promise<GatewaySettingsView> {
+  // Env-only mode: gateway settings are not editable from console, matching COPINEX.
+  // The rail is owned by the server environment, not by a console write.
+  throw ApiError.forbidden(
+    'Pay2Crypto gateway settings are environment-only. ' +
+      'Set PAY2CRYPTO_API_URL, PAY2CRYPTO_TOKEN and PAY2CRYPTO_WEBHOOK_SECRET on the API server, then restart it.',
+    'GATEWAY_SETTINGS_ENV_ONLY',
+  );
 }
 
 /**

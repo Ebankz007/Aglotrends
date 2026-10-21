@@ -11,8 +11,16 @@ const scriptSrc = isDev
   ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
   : "script-src 'self' 'unsafe-inline'";
 
+// The deploy builds into a staging directory and swaps it into place only
+// after the build succeeds. `next build` wipes its output directory at the
+// start, so building straight into `.next` would delete the assets the live
+// server is serving — every deploy would 404 its own chunks mid-build.
+// Unset in normal operation: the running server must always read `.next`.
+const distDir = process.env.NEXT_DIST_DIR;
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  ...(distDir ? { distDir } : {}),
   async rewrites() {
     // Proxy API calls to the backend on :4001 — same-origin, so the httpOnly
     // session cookie set by the API is attached automatically and there is no

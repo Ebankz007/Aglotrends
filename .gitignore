@@ -30,6 +30,8 @@ node_modules/
 dist/
 build/
 .next/
+.next-staging/
+.next.previous/
 out/
 coverage/
 .pnpm-store/

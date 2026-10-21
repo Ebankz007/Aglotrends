@@ -210,6 +210,44 @@ export function Field({
   );
 }
 
+/** Labelled select row. Mirrors Field's look; options are {value,label} pairs. */
+export function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  hint,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  hint?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] text-mist">
+        {label}
+      </span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full appearance-none rounded-2xl border border-white/10 bg-night-2 px-4 py-3 text-[15px] text-soft outline-none transition focus:border-brand/50 disabled:opacity-50"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} className="bg-night-2 text-soft">
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {hint && <span className="mt-1.5 block text-xs text-mist">{hint}</span>}
+    </label>
+  );
+}
+
 /** Headline metric tile. */
 export function Stat({
   label,

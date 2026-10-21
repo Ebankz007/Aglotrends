@@ -8,8 +8,22 @@ export function formatCents(cents: number): string {
   })}`;
 }
 
+/** Format integer cents with an explicit currency code.
+ *  123456, "USD" → "$1,234.56"   123456, "USDT" → "1,234.56 USDT" */
+export function formatCurrency(cents: number, currency = "USD"): string {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  const value = (abs / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const code = (currency || "USD").toUpperCase();
+  if (code === "USD") return `${sign}$${value}`;
+  return `${sign}${value} ${code}`;
+}
+
 /** Format a date as "Sep 25, 2026". Date-only strings (YYYY-MM-DD) are parsed
- * as local midnight so they don't slip a day in negative-offset timezones. */
+ *  as local midnight so they don't slip a day in negative-offset timezones. */
 export function formatDate(d: string | Date | null | undefined): string {
   if (!d) return "—";
   const date =

@@ -44,10 +44,10 @@ export async function createUserSubscription(input: {
     await db.insert(schema.payments).values({
       userId: input.userId,
       amountCents: input.priceCents,
-      currency: input.currency ?? 'USD',
+      currency: 'USDT',
       purpose: 'DEPOSIT',
       status: 'PENDING',
-      reference: `sub-${input.providerId}-${Date.now()}`,
+      paymentRef: `sub-${input.providerId}-${Date.now()}`,
     });
   }
 

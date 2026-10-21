@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ALLOWED_NETWORKS,
   FEE_CENTS,
   buildPaymentRequestBody,
+  parseNetwork,
   parsePaymentRequestResponse,
 } from '../src/services/payment-service.js';
 import { ApiError } from '../src/lib/errors.js';
@@ -54,6 +56,39 @@ describe('buildPaymentRequestBody', () => {
     expect(reg.description).toContain('$20.00');
     expect(dep.description).toContain('deposit');
     expect(dep.description).not.toBe(reg.description);
+  });
+});
+
+describe('parseNetwork', () => {
+  it('offers exactly the three USDT rails we support', () => {
+    expect([...ALLOWED_NETWORKS]).toEqual(['trc20', 'erc20', 'bep20']);
+  });
+
+  it('accepts each supported rail', () => {
+    for (const n of ALLOWED_NETWORKS) {
+      expect(parseNetwork(n)).toBe(n);
+    }
+  });
+
+  it('is case- and whitespace-insensitive', () => {
+    expect(parseNetwork('TRC20')).toBe('trc20');
+    expect(parseNetwork(' Bep20 ')).toBe('bep20');
+  });
+
+  it('defaults to trc20 when the client picks nothing', () => {
+    expect(parseNetwork(undefined)).toBe('trc20');
+    expect(parseNetwork(null)).toBe('trc20');
+    expect(parseNetwork('')).toBe('trc20');
+  });
+
+  it('rejects a rail we do not serve — the client names the intent, the server owns the list', () => {
+    expect(() => parseNetwork('solana')).toThrow(ApiError);
+    try {
+      parseNetwork('solana');
+    } catch (err) {
+      expect((err as ApiError).status).toBe(400);
+      expect((err as ApiError).code).toBe('INVALID_NETWORK');
+    }
   });
 });
 

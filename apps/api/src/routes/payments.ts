@@ -5,6 +5,7 @@ import { db, schema } from '../db.js';
 import { asyncHandler } from '../lib/async.js';
 import { requireAuth } from '../lib/auth.js';
 import {
+  ALLOWED_NETWORKS,
   createPayment,
   listMyPayments,
   refreshCheckoutUrl,
@@ -14,9 +15,15 @@ import {
 export const paymentsRouter = Router();
 paymentsRouter.use(requireAuth);
 
+const networkSchema = z.enum(ALLOWED_NETWORKS);
+
 const depositSchema = z.object({
   amountCents: z.number().int().positive().max(100_000_000),
-  network: z.enum(['trc20','erc20','bep20']).optional(),
+  network: networkSchema.optional(),
+});
+
+const registrationSchema = z.object({
+  network: networkSchema.optional(),
 });
 
 /** One PENDING invoice per purpose per member — no invoice spam, ever. */
@@ -67,7 +74,7 @@ paymentsRouter.post(
       });
       return;
     }
-    const network = typeof req.body?.network === 'string' ? req.body.network : undefined;
+    const { network } = registrationSchema.parse(req.body ?? {});
     const payment = await createPayment(req.user!.id, 'REGISTRATION', undefined, network);
     res.status(201).json({ payment });
   }),

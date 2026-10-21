@@ -9,6 +9,7 @@ import {
   Note,
   Panel,
   PortalPage,
+  SelectField,
   Stat,
   Table,
   Td,
@@ -31,6 +32,13 @@ import {
 } from "@/lib/api";
 import { formatCents, formatDateTime } from "@/lib/format";
 import { KycPanel } from "@/components/kyc-panel";
+
+/** USDT rails offered for gateway payments. Keep in sync with the API's allowed networks. */
+const USDT_NETWORK_OPTIONS = [
+  { value: "trc20", label: "TRC20 (Tron)" },
+  { value: "erc20", label: "ERC20 (Ethereum)" },
+  { value: "bep20", label: "BEP20 (BNB Smart Chain)" },
+];
 
 function payoutTone(status: string): "neutral" | "ok" | "warn" | "danger" | "info" {
   switch (status) {
@@ -219,16 +227,13 @@ export function WalletCenter() {
             </div>
           )}
           <div className="mt-3">
-            <Field
+            <SelectField
               label="USDT Network"
-              as="select"
               value={registrationNetwork}
               onChange={(v) => setRegistrationNetwork(v as 'trc20'|'erc20'|'bep20')}
-            >
-              <option value="trc20">TRC20</option>
-              <option value="erc20">ERC20</option>
-              <option value="bep20">BEP20</option>
-            </Field>
+              options={USDT_NETWORK_OPTIONS}
+              hint="Pick the rail you will send on. The checkout link is bound to this network."
+            />
           </div>
           <div className="mt-4">
             <ActionButton onClick={onPayRegistration} disabled={payBusy}>
@@ -291,16 +296,13 @@ export function WalletCenter() {
               onChange={setDepositAmount}
               placeholder="100.00"
             />
-            <Field
+            <SelectField
               label="USDT Network"
-              as="select"
               value={depositNetwork}
               onChange={(v) => setDepositNetwork(v as 'trc20'|'erc20'|'bep20')}
-            >
-              <option value="trc20">TRC20</option>
-              <option value="erc20">ERC20</option>
-              <option value="bep20">BEP20</option>
-            </Field>
+              options={USDT_NETWORK_OPTIONS}
+              hint="Pick the rail you will send on. The checkout link is bound to this network."
+            />
             {depositError && <Note tone="error">{depositError}</Note>}
             <ActionButton type="submit" disabled={depositBusy}>
               {depositBusy ? "Preparing checkout…" : "Deposit with USDT"}

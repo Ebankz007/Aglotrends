@@ -7,7 +7,7 @@ import { ApiError } from '../lib/errors.js';
 import { logger } from '../logger.js';
 import { recordPlatformFee } from './platform-fees.js';
 import { processRegistration } from './registration.js';
-import { isGatewayMock, resolveGatewaySettings, resolvePlatformFeeSettings } from './settings.js';
+import { isGatewayMock, resolveGatewaySettings, resolvePlatformFeeSettings, servedRailList } from './settings.js';
 import { creditWallet } from './wallet.js';
 
 /** §1 — the one-time membership fee ($20.00), paid by every new member. */
@@ -25,12 +25,32 @@ export type PaymentPurpose = (typeof PURPOSES)[number];
 export const ALLOWED_NETWORKS = ['trc20', 'erc20', 'bep20'] as const;
 export type PaymentNetwork = (typeof ALLOWED_NETWORKS)[number];
 
-/** Validate a client-chosen rail. Defaults to TRC20 when omitted or blank. */
-export function parseNetwork(value: string | null | undefined): PaymentNetwork {
-  const raw = (value ?? '').trim().toLowerCase() || 'trc20';
-  if (!(ALLOWED_NETWORKS as readonly string[]).includes(raw)) {
+/**
+ * The rails the merchant account can actually SERVE.
+ *
+ * Offering a rail the gateway has no receiving address for is a broken
+ * product: the member picks ERC20, the gateway refuses (422, "no USDT
+ * receiving address on Ethereum"), and their registration fails. The account
+ * decides which rails exist, so the account decides the list — the server
+ * owns it, and the client renders exactly what the server says.
+ */
+export function servedNetworks(): string[] {
+  return servedRailList();
+}
+
+/**
+ * Validate a client-chosen rail. Defaults to the first served rail when
+ * omitted or blank, and rejects a rail the account cannot serve.
+ */
+export function parseNetwork(
+  value: string | null | undefined,
+  served: readonly string[] = servedNetworks(),
+): PaymentNetwork {
+  const fallback = served[0] ?? 'trc20';
+  const raw = (value ?? '').trim().toLowerCase() || fallback;
+  if (!(served as readonly string[]).includes(raw)) {
     throw ApiError.badRequest(
-      `Unsupported payment network: ${raw}. Allowed: ${ALLOWED_NETWORKS.join(', ')}`,
+      `Unsupported payment network: ${raw}. Available: ${served.join(', ')}`,
       'INVALID_NETWORK',
     );
   }

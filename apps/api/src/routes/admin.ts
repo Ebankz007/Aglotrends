@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db.js';
+import { config } from '../config.js';
 import { asyncHandler } from '../lib/async.js';
 import { ApiError } from '../lib/errors.js';
 import { hashPassword, requireAuth, requireStaff, requireSuperAdmin } from '../lib/auth.js';
@@ -831,8 +832,29 @@ const gatewaySettingsSchema = z.object({
   webhookSecret: z.string().max(500).nullable().optional(),
 });
 
-adminRouter.put(
-  '/settings/gateway',
+    adminRouter.get(
+      '/settings/gateway/webhook',
+      requireSuperAdmin,
+      asyncHandler(async (_req, res) => {
+        // The settlement callback the gateway must POST to. Without it, a
+        // payment is never confirmed and the member pays into a void - so
+        // the operator has to be able to READ this value and paste it into
+        // the gateway's dashboard. SUPERADMIN only, and audited.
+        const secret = config.PAY2CRYPTO_WEBHOOK_SECRET ?? '';
+        const base = (config.APP_URL || '').replace(/\/+$/, '');
+        await audit(_req.user!.id, 'settings.gateway.webhook.reveal', 'system', undefined, {
+          configured: Boolean(secret),
+        });
+        res.json({
+          url: secret ? `${base}/api/webhooks/pay2crypto?secret=${encodeURIComponent(secret)}` : '',
+          secret,
+          configured: Boolean(secret),
+        });
+      }),
+    );
+
+    adminRouter.put(
+      '/settings/gateway',
   requireSuperAdmin,
   asyncHandler(async (req, res) => {
     const body = gatewaySettingsSchema.parse(req.body);

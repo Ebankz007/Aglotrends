@@ -5,10 +5,11 @@ import { db, schema } from '../db.js';
 import { asyncHandler } from '../lib/async.js';
 import { requireAuth } from '../lib/auth.js';
 import {
-  ALLOWED_NETWORKS,
   createPayment,
   listMyPayments,
+  parseNetwork,
   refreshCheckoutUrl,
+  servedNetworks,
   type PaymentPurpose,
 } from '../services/payment-service.js';
 import { gatewayIsMock } from '../services/settings.js';
@@ -16,7 +17,25 @@ import { gatewayIsMock } from '../services/settings.js';
 export const paymentsRouter = Router();
 paymentsRouter.use(requireAuth);
 
-const networkSchema = z.enum(ALLOWED_NETWORKS);
+/**
+ * The rail list is validated at REQUEST time, not by a static zod enum: the
+ * set of rails the merchant account can serve changes with the account, and a
+ * rail the gateway cannot settle must never reach the gateway.
+ */
+const networkSchema = z
+  .string()
+  .optional()
+  .transform((value, ctx) => {
+    try {
+      return parseNetwork(value);
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err instanceof Error ? err.message : 'Unsupported payment network',
+      });
+      return z.NEVER;
+    }
+  });
 
 const depositSchema = z.object({
   amountCents: z.number().int().positive().max(100_000_000),
@@ -77,8 +96,19 @@ paymentsRouter.post(
     }
     const { network } = registrationSchema.parse(req.body ?? {});
     const payment = await createPayment(req.user!.id, 'REGISTRATION', undefined, network);
-    res.status(201).json({ payment, mock: gatewayIsMock() });
+    res.status(201).json({ payment, mock: gatewayIsMock(), networks: servedNetworks() });
     return;
+  }),
+);
+
+/**
+ * The rails the client may offer. The server owns this list — a rail the
+ * merchant account cannot serve would fail at the gateway, not here.
+ */
+paymentsRouter.get(
+  '/rails',
+  asyncHandler(async (_req, res) => {
+    res.json({ networks: servedNetworks(), mock: gatewayIsMock() });
   }),
 );
 
@@ -88,7 +118,7 @@ paymentsRouter.post(
   asyncHandler(async (req, res) => {
     const { amountCents, network } = depositSchema.parse(req.body);
     const payment = await createPayment(req.user!.id, 'DEPOSIT', amountCents, network);
-    res.status(201).json({ payment, mock: gatewayIsMock() });
+    res.status(201).json({ payment, mock: gatewayIsMock(), networks: servedNetworks() });
     return;
   }),
 );

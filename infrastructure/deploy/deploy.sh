@@ -31,6 +31,12 @@ WEB_HEALTH="http://127.0.0.1:${WEB_PORT}/"
 # it off. Each id runs exactly once — the sentinel records the last id that ran.
 DIAG_P2C_ID="p2c-probe-3"
 DIAG_PAYMENTS_ID="cleanup-1"
+# The USDT rails the merchant account can actually serve. The account is the
+# authority: a rail with no receiving address on the gateway is refused by the
+# gateway, so offering it breaks the member's payment. Verified against the
+# live account: TRC20 (2 receiving addresses) and BEP20 (1) exist; ERC20 has
+# none until an address is added in the Pay2Crypto dashboard.
+SYNC_NETWORKS="trc20,bep20"
 # Absolute node/pnpm first: webhook/cron shells carry a minimal PATH.
 export PATH="/www/server/nodejs/v24.18.0/bin:$PATH"
 # ─────────────────────────────────────────────────────────
@@ -121,6 +127,28 @@ run_diag() {
 run_diag p2c "$APP_DIR/database/scripts/diagnose-p2c.mjs" "$DIAG_P2C_ID" --create-probe
 run_diag payments "$APP_DIR/database/scripts/expire-mock-payments.mjs" "$DIAG_PAYMENTS_ID" --apply
 
+# ── Publish the console credential into the runtime env ──
+# The API is env-only: it reads PAY2CRYPTO_* from apps/api/.env and never
+# from the database. The console stores the credential encrypted in
+# app_config. Without this step the credential Henry configured sits in the
+# database while the API serves the mock rail - which is exactly what
+# happened for months. The sync runs on every deploy, BEFORE the API starts.
+# Exit 42 means "the environment changed" -> the API must restart to load it.
+GATEWAY_ENV_CHANGED=0
+if [ -f "$APP_DIR/database/scripts/sync-gateway-env.mjs" ]; then
+  log "syncing the gateway credential into the runtime environment"
+  set +e
+  node "$APP_DIR/database/scripts/sync-gateway-env.mjs" --apply --networks="$SYNC_NETWORKS"
+  _sync_rc=$?
+  set -e
+  if [ "$_sync_rc" -eq 42 ]; then
+    GATEWAY_ENV_CHANGED=1
+    log "gateway environment changed - the API will be restarted to load it"
+  elif [ "$_sync_rc" -ne 0 ]; then
+    log "gateway credential sync failed (rc=$_sync_rc) - continuing with the current environment"
+  fi
+fi
+
 # The commit that was last BUILT and deployed successfully. `deploy.log` is
 # appended to only after a healthy deploy, so it is the ground truth for
 # "what is actually running" — NOT `git rev-parse HEAD`.
@@ -137,6 +165,16 @@ fi
 log "last deployed commit: ${LAST_DEPLOYED:-none}"
 
 if [ "$NEW_COMMIT" = "$PREV_COMMIT" ] && [ "$NEW_COMMIT" = "$LAST_DEPLOYED" ]; then
+  if [ "$GATEWAY_ENV_CHANGED" -eq 1 ]; then
+    log "tree is current but the gateway credential changed — restarting to load it"
+    start_processes || fail "restart failed while up to date"
+    sleep 15
+    if curl -sf -m 5 "$API_HEALTH" >/dev/null 2>&1 && curl -sf -m 5 "$WEB_HEALTH" >/dev/null 2>&1; then
+      log "HEALTHY after restart — nothing to do"
+      exit 0
+    fi
+    fail "UNHEALTHY after the credential restart — needs a human"
+  fi
   log "already on $NEW_COMMIT and already built — verifying health only, no rebuild"
   if curl -sf -m 5 "$API_HEALTH" >/dev/null 2>&1 && curl -sf -m 5 "$WEB_HEALTH" >/dev/null 2>&1; then
     log "HEALTHY on $NEW_COMMIT — nothing to do"

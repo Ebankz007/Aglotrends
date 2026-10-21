@@ -5,10 +5,12 @@ import { ActionButton, Badge, Empty, Field, Note, Panel, Toggle } from "@/compon
 import { useAsync } from "@/lib/hooks";
 import {
   ApiError,
+  fetchGatewayWebhook,
   fetchIntegrations,
   saveIntegrations,
   sendTestEmail,
   type GatewaySettingsDto,
+  type GatewayWebhookDto,
   type IntegrationsDto,
   type SecretSource,
 } from "@/lib/api";
@@ -130,6 +132,22 @@ export function IntegrationsTab() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  // The settlement webhook. Read on demand, never rendered by default — a
+  // secret on screen is a secret in a screenshot.
+  const [revealed, setRevealed] = useState<GatewayWebhookDto | null>(null);
+  const [revealBusy, setRevealBusy] = useState(false);
+
+  async function onRevealWebhook() {
+    setRevealBusy(true);
+    try {
+      setRevealed(await fetchGatewayWebhook());
+    } catch {
+      setNote({ tone: "error", text: "Could not read the webhook configuration." });
+    } finally {
+      setRevealBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (data) {
@@ -290,9 +308,38 @@ export function IntegrationsTab() {
           />
         </dl>
         <p className="mt-4 text-xs text-mist">
-          Members pick their own rail (TRC20 / ERC20 / BEP20) at checkout. The values above are the
-          rail defaults, not a restriction.
+          Members pick their own rail at checkout. The rails the account can actually serve are{" "}
+          <strong>{(gateway.networks ?? [gateway.network]).map((n) => n.toUpperCase()).join(", ")}</strong>
+          {" "}— a rail the gateway has no receiving address for is refused by the gateway, so it is
+          not offered.
         </p>
+        <div className="mt-4 rounded-lg border border-line p-4">
+          <p className="text-sm font-medium text-fog">Settlement webhook (Pay2Crypto dashboard)</p>
+          <p className="mt-1 text-xs text-mist">
+            Payments settle when Pay2Crypto posts to this URL. Paste it into the gateway&apos;s
+            callback settings, or send the secret in the <code>x-pay2crypto-secret</code> header
+            instead.
+          </p>
+          {revealed ? (
+            <div className="mt-3 space-y-2 text-xs">
+              <div className="rounded bg-ink p-2 font-mono break-all text-mist">
+                {revealed.url}
+              </div>
+              <div className="rounded bg-ink p-2 font-mono break-all text-mist">
+                header secret: {revealed.secret}
+              </div>
+            </div>
+          ) : (
+            <ActionButton
+              tone="quiet"
+              className="mt-3"
+              onClick={onRevealWebhook}
+              disabled={revealBusy}
+            >
+              {revealBusy ? "Loading…" : "Show webhook URL & secret"}
+            </ActionButton>
+          )}
+        </div>
       </Panel>
 
       {/* ------------------------------------------------------------- email */}

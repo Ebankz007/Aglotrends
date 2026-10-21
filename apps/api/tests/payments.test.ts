@@ -68,21 +68,36 @@ describe('parseNetwork', () => {
     expect([...ALLOWED_NETWORKS]).toEqual(['trc20', 'erc20', 'bep20']);
   });
 
-  it('accepts each supported rail', () => {
-    for (const n of ALLOWED_NETWORKS) {
-      expect(parseNetwork(n)).toBe(n);
+  it('accepts each rail the account serves', () => {
+    const served = ['trc20', 'erc20', 'bep20'];
+    for (const n of served) {
+      expect(parseNetwork(n, served)).toBe(n);
     }
   });
 
   it('is case- and whitespace-insensitive', () => {
-    expect(parseNetwork('TRC20')).toBe('trc20');
-    expect(parseNetwork(' Bep20 ')).toBe('bep20');
+    const served = ['trc20', 'erc20', 'bep20'];
+    expect(parseNetwork('TRC20', served)).toBe('trc20');
+    expect(parseNetwork(' Bep20 ', served)).toBe('bep20');
   });
 
-  it('defaults to trc20 when the client picks nothing', () => {
+  it('defaults to the first served rail when the client picks nothing', () => {
     expect(parseNetwork(undefined)).toBe('trc20');
     expect(parseNetwork(null)).toBe('trc20');
     expect(parseNetwork('')).toBe('trc20');
+    expect(parseNetwork(undefined, ['bep20', 'trc20'])).toBe('bep20');
+  });
+
+  it('rejects a rail the account cannot serve — the account owns the list', () => {
+    // ERC20 has no receiving address on the merchant account: the gateway
+    // refuses it. Offering it would break the member's payment.
+    expect(() => parseNetwork('erc20', ['trc20', 'bep20'])).toThrow(ApiError);
+    try {
+      parseNetwork('erc20', ['trc20', 'bep20']);
+    } catch (err) {
+      expect((err as ApiError).status).toBe(400);
+      expect((err as ApiError).code).toBe('INVALID_NETWORK');
+    }
   });
 
   it('rejects a rail we do not serve — the client names the intent, the server owns the list', () => {

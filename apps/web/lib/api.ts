@@ -576,10 +576,16 @@ export async function fetchMyPayments(): Promise<PaymentDto[]> {
   return data.payments;
 }
 
-/** Create the §1 registration-fee invoice ($20, fixed by the server). */
-export async function createRegistrationPayment(
-  network?: 'trc20'|'erc20'|'bep20',
-): Promise<{ payment: PaymentDto; mock: boolean }> {
+  /** The rails the server can actually serve. The client never invents this list. */
+  export async function fetchPaymentRails(): Promise<string[]> {
+    const data = await request<{ networks: string[] }>("/payments/rails");
+    return data.networks ?? [];
+  }
+
+  /** Create the §1 registration-fee invoice ($20, fixed by the server). */
+  export async function createRegistrationPayment(
+    network?: string,
+  ): Promise<{ payment: PaymentDto; mock: boolean }> {
   return request<{ payment: PaymentDto; mock: boolean }>("/payments/registration", {
     method: "POST",
     body: JSON.stringify({ network }),
@@ -587,10 +593,10 @@ export async function createRegistrationPayment(
 }
 
 /** Create a crypto-deposit invoice; the wallet is credited when it confirms. */
-export async function createDeposit(
-  amountCents: number,
-  network?: 'trc20'|'erc20'|'bep20',
-): Promise<{ payment: PaymentDto; mock: boolean }> {
+  export async function createDeposit(
+    amountCents: number,
+    network?: string,
+  ): Promise<{ payment: PaymentDto; mock: boolean }> {
   return request<{ payment: PaymentDto; mock: boolean }>("/payments/deposit", {
     method: "POST",
     body: JSON.stringify({ amountCents, network }),
@@ -1026,6 +1032,8 @@ export interface GatewaySettingsDto {
   apiUrl: string;
   walletAddress: string;
   network: string;
+  /** Every rail the account can serve. The client is offered exactly these. */
+  networks: string[];
   asset: string;
   forceMock: boolean;
   hasToken: boolean;
@@ -1033,8 +1041,20 @@ export interface GatewaySettingsDto {
   tokenSource: "database" | "environment" | "unset";
   webhookSecretSource: "database" | "environment" | "unset";
   mockActive: boolean;
-  /** False when the API has no SECRET_ENCRYPTION_KEY — secrets are plaintext. */
+  /** False when the API has no SECRET_ENCRYPTION_KEY - secrets are plaintext. */
   secretsEncrypted: boolean;
+}
+
+/** The settlement webhook URL and secret, for the gateway's callback settings. */
+export interface GatewayWebhookDto {
+  url: string;
+  secret: string;
+  configured: boolean;
+}
+
+/** Reveal the settlement webhook URL + secret (SUPERADMIN only). */
+export async function fetchGatewayWebhook(): Promise<GatewayWebhookDto> {
+  return request<GatewayWebhookDto>("/admin/settings/gateway/webhook");
 }
 
 export interface PlatformSettingsDto {

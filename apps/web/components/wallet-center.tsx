@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActionButton,
   Badge,
@@ -25,6 +25,7 @@ import {
   fetchMyKyc,
   fetchMyPayments,
   fetchMyPayouts,
+  fetchPaymentRails,
   fetchWallet,
   refreshCheckout,
   requestPayout,
@@ -33,12 +34,19 @@ import {
 import { formatCents, formatDateTime } from "@/lib/format";
 import { KycPanel } from "@/components/kyc-panel";
 
-/** USDT rails offered for gateway payments. Keep in sync with the API's allowed networks. */
-const USDT_NETWORK_OPTIONS = [
-  { value: "trc20", label: "TRC20 (Tron)" },
-  { value: "erc20", label: "ERC20 (Ethereum)" },
-  { value: "bep20", label: "BEP20 (BNB Smart Chain)" },
-];
+/**
+ * USDT rails. The LIST comes from the server: only rails the merchant account
+ * can actually serve are offered. A hardcoded list here is how a member ends
+ * up picking a rail the gateway refuses ("no USDT receiving address on
+ * Ethereum") with no way to recover.
+ */
+const RAIL_LABELS: Record<string, string> = {
+  trc20: "TRC20 (Tron)",
+  erc20: "ERC20 (Ethereum)",
+  bep20: "BEP20 (BNB Smart Chain)",
+};
+
+const FALLBACK_RAILS = ["trc20"];
 
 function payoutTone(status: string): "neutral" | "ok" | "warn" | "danger" | "info" {
   switch (status) {
@@ -99,12 +107,38 @@ export function WalletCenter() {
   const [checkoutIsMock, setCheckoutIsMock] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
-  const [registrationNetwork, setRegistrationNetwork] = useState<'trc20'|'erc20'|'bep20'>('trc20');
+  /** The rails the server says we can serve. */
+  const [rails, setRails] = useState<string[]>(FALLBACK_RAILS);
+  const [registrationNetwork, setRegistrationNetwork] = useState<string>("trc20");
 
   const [depositAmount, setDepositAmount] = useState("");
-  const [depositNetwork, setDepositNetwork] = useState<'trc20'|'erc20'|'bep20'>('trc20');
+  const [depositNetwork, setDepositNetwork] = useState<string>("trc20");
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositBusy, setDepositBusy] = useState(false);
+
+  // The rail list is the server's to give. Ask for it once, and fall back to
+  // TRC20 only if the request fails — never to a list we invented.
+  useEffect(() => {
+    let cancelled = false;
+    fetchPaymentRails()
+      .then((networks) => {
+        if (cancelled || !networks.length) return;
+        setRails(networks);
+        setRegistrationNetwork((current) =>
+          networks.includes(current) ? current : networks[0],
+        );
+        setDepositNetwork((current) => (networks.includes(current) ? current : networks[0]));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const railOptions = rails.map((value) => ({
+    value,
+    label: RAIL_LABELS[value] ?? value.toUpperCase(),
+  }));
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("");
@@ -235,8 +269,8 @@ export function WalletCenter() {
             <SelectField
               label="USDT Network"
               value={registrationNetwork}
-              onChange={(v) => setRegistrationNetwork(v as 'trc20'|'erc20'|'bep20')}
-              options={USDT_NETWORK_OPTIONS}
+            onChange={(v) => setRegistrationNetwork(v)}
+            options={railOptions}
               hint="Pick the rail you will send on. The checkout link is bound to this network."
             />
           </div>
@@ -315,8 +349,8 @@ export function WalletCenter() {
             <SelectField
               label="USDT Network"
               value={depositNetwork}
-              onChange={(v) => setDepositNetwork(v as 'trc20'|'erc20'|'bep20')}
-              options={USDT_NETWORK_OPTIONS}
+            onChange={(v) => setDepositNetwork(v)}
+            options={railOptions}
               hint="Pick the rail you will send on. The checkout link is bound to this network."
             />
             {depositError && <Note tone="error">{depositError}</Note>}

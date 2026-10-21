@@ -75,15 +75,20 @@ async function main() {
   const apiEnv = parseEnv(API_ENV);
   const dbEnv = parseEnv(DB_ENV);
   out('== env ==');
-  for (const k of ['NODE_ENV', 'ALLOW_MOCK_RAIL', 'PAY2CRYPTO_API_URL', 'PAY2CRYPTO_TOKEN', 'PAY2CRYPTO_WEBHOOK_SECRET', 'SECRET_ENCRYPTION_KEY']) {
+  for (const k of ['NODE_ENV', 'ALLOW_MOCK_RAIL', 'PAY2CRYPTO_API_URL', 'PAY2CRYPTO_TOKEN', 'PAY2CRYPTO_WEBHOOK_SECRET', 'PAY2CRYPTO_NETWORKS', 'SECRET_ENCRYPTION_KEY']) {
     const v = apiEnv[k];
-    if (k === 'PAY2CRYPTO_API_URL' || k === 'ALLOW_MOCK_RAIL' || k === 'NODE_ENV') {
+    if (k === 'PAY2CRYPTO_API_URL' || k === 'ALLOW_MOCK_RAIL' || k === 'NODE_ENV' || k === 'PAY2CRYPTO_NETWORKS') {
       out(`  ${k} = ${v === undefined ? '<unset>' : v === '' ? '<empty>' : v}`);
     } else {
       out(`  ${k} = ${v ? `<set len=${v.length}>` : '<unset-or-empty>'}`);
     }
   }
   out(`  APP_URL = ${apiEnv.APP_URL ?? '<unset>'}`);
+  out(
+    `  RUNTIME_RAIL = ${
+      apiEnv.PAY2CRYPTO_TOKEN && apiEnv.ALLOW_MOCK_RAIL !== 'true' ? 'LIVE' : 'MOCK'
+    }`,
+  );
 
   const dbUrl = dbEnv.DATABASE_URL || process.env.DATABASE_URL;
   if (!dbUrl) {
@@ -166,6 +171,73 @@ async function main() {
     }
   }
 
+  // Reclaim the addresses our own probes are holding.
+  //
+  // A pending payment request OCCUPIES a receiving address on the merchant
+  // account until it settles or expires. The account has 2 TRC20 addresses,
+  // so two abandoned probes block every TRC20 payment for an hour - the
+  // member sees "all addresses are awaiting payment" and the rail looks
+  // broken. Cancelling our own probe requests releases them immediately.
+  // ONLY requests whose reference starts with our probe prefix are touched:
+  // a real member's invoice is never cancelled by a diagnostic.
+  const PROBE_PREFIXES = ['AGL-PROBE-', 'AGL-RAIL-'];
+  try {
+    const res = await fetch(`${apiUrl}/v1/payment-requests`, { headers, signal: timeout() });
+    const body = await res.json();
+    const items = Array.isArray(body?.data) ? body.data : [];
+    const mine = items.filter(
+      (r) => typeof r?.reference === 'string' && PROBE_PREFIXES.some((p) => r.reference.startsWith(p)),
+    );
+    out(`== reclaiming probe invoices (${mine.length} of ${items.length}) ==`);
+    for (const item of mine) {
+      const token = item.token;
+      let done = false;
+      for (const [label, method, path] of [
+        ['DELETE', 'DELETE', `/v1/payment-requests/${token}`],
+        ['CANCEL', 'POST', `/v1/payment-requests/${token}/cancel`],
+      ]) {
+        try {
+          const r = await fetch(`${apiUrl}${path}`, { method, headers, signal: timeout() });
+          out(`  ${label} ${path.slice(0, 46)} -> ${r.status}`);
+          if (r.status >= 200 && r.status < 300) {
+            done = true;
+            break;
+          }
+        } catch (err) {
+          out(`  ${label} ${path.slice(0, 46)} -> ERROR ${err.message}`);
+        }
+      }
+      if (!done) out(`  could not cancel ${String(token).slice(0, 8)} (it will free the address when it expires)`);
+    }
+  } catch (err) {
+    out(`  reclaim pass failed: ${err.message}`);
+  }
+
+  // Is the webhook configured on the account? If it is not, payments settle
+  // only by hand. Read-only probes; a 404 simply means "no such endpoint".
+  out('== webhook configuration probe ==');
+  for (const path of [
+    '/v1/webhook',
+    '/v1/webhooks',
+    '/v1/settings',
+    '/v1/config',
+    '/v1/notify',
+    '/v1/callbacks',
+  ]) {
+    try {
+      const res = await fetch(`${apiUrl}${path}`, { headers, signal: timeout() });
+      const text = await res.text();
+      if (res.status >= 200 && res.status < 300) {
+        out(`  GET ${path} -> ${res.status}`);
+        out(`      ${text.slice(0, 300)}`);
+      } else {
+        out(`  GET ${path} -> ${res.status}`);
+      }
+    } catch (err) {
+      out(`  GET ${path} -> ERROR ${err.message}`);
+    }
+  }
+
   if (!authed || WANT_CREATE) {
     if (authed) out('  read endpoints answered; still exercising the write path (--create-probe)');
     else out('  no read endpoint accepted the token; trying the write path');
@@ -229,41 +301,47 @@ async function main() {
   // lets the client pick trc20/erc20/bep20. If the gateway silently coerces
   // the rail, a member who picks BEP20 is charged on TRC20 — funds sent on the
   // wrong chain. Ask the gateway directly, once per rail.
-  out('== rail probe (does the account serve every rail we offer?) ==');
-  for (const network of ['trc20', 'erc20', 'bep20']) {
-    try {
-      const res = await fetch(`${apiUrl}/v1/payment-requests`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          amount: '1.00',
-          asset: gw.asset || 'USDT',
-          network,
-          reference: `AGL-RAIL-${network}-${Date.now()}`,
-          description: `Aglotrends rail probe (${network})`,
-          return_url: `${(apiEnv.APP_URL || 'https://aglotrends.com').replace(/\/$/, '')}/wallet`,
-        }),
-        signal: timeout(),
-      });
-      const text = await res.text();
-      let parsed = null;
+  //
+  // This creates payment requests, and a pending request OCCUPIES a receiving
+  // address on the account until it expires. So it runs ONLY inside the
+  // write probe - a routine diagnostic must never hold a member's rail.
+  if (WANT_CREATE) {
+    out('== rail probe (does the account serve every rail we offer?) ==');
+    for (const network of ['trc20', 'erc20', 'bep20']) {
       try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = null;
+        const res = await fetch(`${apiUrl}/v1/payment-requests`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            amount: '1.00',
+            asset: gw.asset || 'USDT',
+            network,
+            reference: `AGL-RAIL-${network}-${Date.now()}`,
+            description: `Aglotrends rail probe (${network})`,
+            return_url: `${(apiEnv.APP_URL || 'https://aglotrends.com').replace(/\/$/, '')}/wallet`,
+          }),
+          signal: timeout(),
+        });
+        const text = await res.text();
+        let parsed = null;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = null;
+        }
+        const served = parsed?.network ?? '?';
+        const mode = parsed?.network_mode ?? '?';
+        const addr = typeof parsed?.pay_address === 'string' ? parsed.pay_address : '';
+        const shape = addr.startsWith('0x') ? 'evm' : addr.startsWith('T') ? 'trc' : addr ? '?' : '-';
+        out(
+          `  asked ${network} -> ${res.status}  served=${served}  mode=${mode}  address_shape=${shape}`,
+        );
+        if (parsed && res.status >= 400) {
+          out(`      ${JSON.stringify(redact(parsed)).slice(0, 200)}`);
+        }
+      } catch (err) {
+        out(`  asked ${network} -> ERROR ${err.message}`);
       }
-      const served = parsed?.network ?? '?';
-      const mode = parsed?.network_mode ?? '?';
-      const addr = typeof parsed?.pay_address === 'string' ? parsed.pay_address : '';
-      const shape = addr.startsWith('0x') ? 'evm' : addr.startsWith('T') ? 'trc' : addr ? '?' : '-';
-      out(
-        `  asked ${network} -> ${res.status}  served=${served}  mode=${mode}  address_shape=${shape}`,
-      );
-      if (parsed && res.status >= 400) {
-        out(`      ${JSON.stringify(redact(parsed)).slice(0, 200)}`);
-      }
-    } catch (err) {
-      out(`  asked ${network} -> ERROR ${err.message}`);
     }
   }
 

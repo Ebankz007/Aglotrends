@@ -56,6 +56,20 @@ export interface GatewaySettings {
   forceMock: boolean;
 }
 
+/**
+ * The rails the merchant account can actually serve, from
+ * `PAY2CRYPTO_NETWORKS` (comma separated). Empty means "TRC20 only".
+ */
+function networksFromEnv(): string[] {
+  const raw = (config.PAY2CRYPTO_NETWORKS ?? '').trim();
+  if (!raw) return ['trc20'];
+  const list = raw
+    .split(',')
+    .map((n) => n.trim().toLowerCase())
+    .filter(Boolean);
+  return list.length ? list : ['trc20'];
+}
+
 const GATEWAY_DEFAULTS: GatewaySettings = {
   provider: 'pay2crypto',
   apiUrl: '',
@@ -76,11 +90,12 @@ const GATEWAY_DEFAULTS: GatewaySettings = {
  * reads THIS function — one source of truth, no second copy to drift.
  */
 export function gatewaySettingsFromEnv(): GatewaySettings {
+  const networks = networksFromEnv();
   return {
     provider: 'pay2crypto',
     apiUrl: (config.PAY2CRYPTO_API_URL || '').replace(/\/+$/, ''),
     walletAddress: '',
-    network: 'trc20',
+    network: networks[0] ?? 'trc20',
     asset: 'USDT',
     token: config.PAY2CRYPTO_TOKEN || '',
     webhookSecret: config.PAY2CRYPTO_WEBHOOK_SECRET || '',
@@ -88,6 +103,10 @@ export function gatewaySettingsFromEnv(): GatewaySettings {
   };
 }
 
+/** The rails the client may offer. The server owns this list. */
+export function servedRailList(): string[] {
+  return networksFromEnv();
+}
 /** The effective gateway config: the environment, and nothing else. */
 export async function resolveGatewaySettings(): Promise<GatewaySettings> {
   return gatewaySettingsFromEnv();
@@ -112,6 +131,8 @@ export interface GatewaySettingsView {
   apiUrl: string;
   walletAddress: string;
   network: string;
+  /** Every rail the account can serve - the client is offered exactly these. */
+  networks: string[];
   asset: string;
   forceMock: boolean;
   hasToken: boolean;
@@ -135,6 +156,7 @@ export async function gatewaySettingsView(): Promise<GatewaySettingsView> {
     apiUrl: effective.apiUrl,
     walletAddress: effective.walletAddress,
     network: effective.network,
+    networks: networksFromEnv(),
     asset: effective.asset,
     forceMock: effective.forceMock,
     hasToken: effective.token.length > 0,

@@ -61,7 +61,13 @@ const schema = z.object({
   // checkout URL is issued so the whole flow is testable with no merchant token.
   PAY2CRYPTO_API_URL: z.string().optional().default(''),
   PAY2CRYPTO_TOKEN: z.string().optional().default(''),
-  PAY2CRYPTO_WEBHOOK_SECRET: z.string().optional().default(''),
+     PAY2CRYPTO_WEBHOOK_SECRET: z.string().optional().default(''),
+
+     // The USDT rails the merchant account can actually serve, comma
+     // separated. A rail the gateway has no receiving address for is refused
+     // by the gateway, so offering it would break the member's payment —
+     // the client is only ever offered what the account can settle.
+     PAY2CRYPTO_NETWORKS: z.string().optional().default(''),
 
   // Review-deploy hatch — set ALLOW_MOCK_RAIL=true ONLY on a deployment that
   // must never take real money. It lets production boot with the mock payment

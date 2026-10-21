@@ -350,12 +350,177 @@ export async function ensureRegistrationProcessed(userId: string): Promise<boole
 }
 
 /**
+ * Webhook payload shape, learned from the LIVE gateway.
+ *
+ * The create response (verified against the live rail) is:
+ *   { token, status, settlement, amount, asset, network, network_mode, mode,
+ *     pay_address, reference, description, checkout_url, submitted_hash,
+ *     expires_at, created_at, paid_at }
+ *
+ * The join key the gateway echoes is `reference` — NOT `payment_ref`, which is
+ * what the old handler read. Accepting one name and not the other means a real
+ * payment 400s at the door: the member pays, the ledger never credits, and
+ * the gateway eventually stops retrying. So the reader below accepts every
+ * name the gateway plausibly uses, in priority order.
+ */
+const WEBHOOK_REF_KEYS = ['payment_ref', 'reference', 'paymentRef', 'ref'] as const;
+const WEBHOOK_STATUS_KEYS = ['status', 'state', 'payment_status'] as const;
+const WEBHOOK_AMOUNT_KEYS = ['payment_amount', 'amount', 'value'] as const;
+const WEBHOOK_TX_KEYS = [
+  'tx_hash',
+  'submitted_hash',
+  'txHash',
+  'txid',
+  'transaction_hash',
+  'tx_id',
+] as const;
+
+/** Statuses that mean "the money moved". */
+const SETTLED_TOKENS = new Set([
+  'confirmed',
+  'paid',
+  'success',
+  'succeeded',
+  'complete',
+  'completed',
+  'settled',
+  'finished',
+]);
+
+/** Statuses that mean "not yet" — they veto a token that looks settled. */
+const UNSETTLED_TOKENS = new Set([
+  'unpaid',
+  'unconfirmed',
+  'incomplete',
+  'invalid',
+  'pending',
+  'failed',
+  'error',
+  'reversed',
+  'refund',
+  'refunded',
+  'declined',
+  'rejected',
+  'expired',
+  'canceled',
+  'cancelled',
+  'processing',
+  'broadcasting',
+  'confirming',
+  'awaiting',
+  'created',
+  'not',
+  'never',
+]);
+
+export interface WebhookEvent {
+  paymentRef?: string;
+  status?: string;
+  amount?: number;
+  txHash?: string;
+  /** True only when the payload says the money actually moved. */
+  settled: boolean;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function firstString(
+  sources: (Record<string, unknown> | undefined)[],
+  keys: readonly string[],
+): string | undefined {
+  for (const src of sources) {
+    if (!src) continue;
+    for (const key of keys) {
+      const raw = src[key];
+      if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    }
+  }
+  return undefined;
+}
+
+function firstNumber(
+  sources: (Record<string, unknown> | undefined)[],
+  keys: readonly string[],
+): number | undefined {
+  for (const src of sources) {
+    if (!src) continue;
+    for (const key of keys) {
+      const raw = src[key];
+      if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+      if (typeof raw === 'string' && raw.trim() !== '') {
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** "payment_confirmed" -> {payment, confirmed}; "unpaid" -> {unpaid}. */
+function statusTokens(status: string): string[] {
+  return status
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Read a gateway webhook into a normalised event.
+ *
+ * Deliberately fail-CLOSED on settlement: a payload that carries a reference
+ * but no settled status is acknowledged and NOT credited. The old handler
+ * treated a missing status as "paid", which would hand a wallet balance for
+ * a mere "payment created" ping — free money, at the merchant's expense.
+ */
+export function extractWebhookEvent(payload: unknown): WebhookEvent {
+  const body = asRecord(payload);
+  if (!body) return { settled: false };
+
+  const nested = asRecord(body.data) ?? asRecord(body.payment);
+  const sources = [body, nested];
+
+  const paymentRef = firstString(sources, WEBHOOK_REF_KEYS);
+
+  // The status may sit at the top level or inside a `settlement` object — the
+  // live create response carries `settlement: null` alongside `status`.
+  const settlement = asRecord(body.settlement);
+  const statusCandidates = [
+    firstString(sources, WEBHOOK_STATUS_KEYS),
+    firstString([settlement], WEBHOOK_STATUS_KEYS),
+  ].filter((s): s is string => Boolean(s));
+  const status = statusCandidates[0];
+
+  let settled = false;
+  for (const candidate of statusCandidates) {
+    const tokens = statusTokens(candidate);
+    if (tokens.some((t) => UNSETTLED_TOKENS.has(t))) continue;
+    if (tokens.some((t) => SETTLED_TOKENS.has(t))) {
+      settled = true;
+      break;
+    }
+  }
+
+  // A non-null `paid_at` is an unambiguous settlement signal in the live shape.
+  const paidAt = firstString([body], ['paid_at', 'paidAt']);
+  if (paidAt) settled = true;
+
+  return {
+    paymentRef,
+    status,
+    amount: firstNumber(sources, WEBHOOK_AMOUNT_KEYS),
+    txHash: firstString(sources, WEBHOOK_TX_KEYS),
+    settled,
+  };
+}
+
+/**
  * Pay2Crypto confirmation webhook. Idempotent: re-delivery is a no-op for the
  * ledger, but a REGISTRATION payment always re-attempts compensation so a
  * first attempt that failed after the PAID write heals on gateway retry.
- *
- * Extraction is deliberately defensive — `payment_ref` is the join key the
- * gateway echoes back.
  */
 export async function handlePaymentWebhook(payload: unknown): Promise<{
   applied: boolean;
@@ -363,15 +528,19 @@ export async function handlePaymentWebhook(payload: unknown): Promise<{
   userId: string;
   compensationRun: boolean;
 }> {
-  const body = (payload ?? {}) as Record<string, unknown>;
-  const paymentRef = typeof body.payment_ref === 'string' ? body.payment_ref : undefined;
-  const txHash = typeof body.tx_hash === 'string' ? body.tx_hash : undefined;
-  const status = typeof body.status === 'string' ? body.status : undefined;
+  const event = extractWebhookEvent(payload);
+  const paymentRef = event.paymentRef;
+  const txHash = event.txHash;
 
   if (!paymentRef) throw ApiError.badRequest('Missing payment_ref', 'INVALID_WEBHOOK');
 
-  // Non-final statuses (broadcast, pending, …) are acknowledged, not applied.
-  if (status && !['confirmed', 'paid', 'success', 'completed'].includes(status.toLowerCase())) {
+  // Only a settled event moves money. Anything else (created, pending,
+  // broadcasting) is acknowledged and dropped.
+  if (!event.settled) {
+    logger.info(
+      { paymentRef, status: event.status },
+      'webhook received but not settled - acknowledged without applying',
+    );
     return {
       applied: false,
       purpose: 'UNKNOWN',
@@ -390,22 +559,18 @@ export async function handlePaymentWebhook(payload: unknown): Promise<{
   const alreadyPaid = payment.status === 'PAID';
 
   if (!alreadyPaid) {
-    // Amount verification when the gateway echoes it back. The sandbox echoes
-    // a STRING ("1" for a $1 request), so accept numeric strings too — a
-    // type-narrow check here would silently skip verification entirely.
-    const echoed =
-      typeof body.payment_amount === 'number'
-        ? body.payment_amount
-        : typeof body.payment_amount === 'string'
-          ? Number(body.payment_amount)
-          : NaN;
-    if (Number.isFinite(echoed)) {
+    // Amount verification when the gateway echoes it back. The sandbox and
+    // the live rail both echo a STRING ("1" for a $1 request), so accept
+    // numeric strings too — a type-narrow check here would silently skip
+    // verification entirely.
+    const echoed = event.amount;
+    if (echoed !== undefined && Number.isFinite(echoed)) {
       const expected = payment.amountCents / 100;
       // Half-cent tolerance: float noise is ~1e-9, anything at or above this
       // is a real discrepancy, not dust.
       if (Math.abs(echoed - expected) >= 0.005) {
         throw ApiError.badRequest(
-          `Payment amount ${body.payment_amount} != expected ${expected}`,
+          `Payment amount ${event.amount} != expected ${expected}`,
           'AMOUNT_MISMATCH',
         );
       }

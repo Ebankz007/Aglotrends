@@ -29,7 +29,7 @@ WEB_HEALTH="http://127.0.0.1:${WEB_PORT}/"
 # One-shot jobs that need shell access on the box (credential liveness, gateway
 # contract drift, clearing dead invoices). Bump an id to run one again; "" turns
 # it off. Each id runs exactly once — the sentinel records the last id that ran.
-DIAG_P2C_ID="p2c-probe-2"
+DIAG_P2C_ID="p2c-probe-3"
 DIAG_PAYMENTS_ID="cleanup-1"
 # Absolute node/pnpm first: webhook/cron shells carry a minimal PATH.
 export PATH="/www/server/nodejs/v24.18.0/bin:$PATH"

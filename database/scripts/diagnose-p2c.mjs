@@ -196,6 +196,10 @@ async function main() {
         } catch {
           out(`      ${text.slice(0, 300)}`);
         }
+        // The response key names are the webhook contract's key names.
+        if (parsed && typeof parsed === 'object') {
+          out(`      response keys = ${Object.keys(parsed).join(',')}`);
+        }
         const url = parsed?.checkout_url || parsed?.payment_url || parsed?.url || '';
         if (url) {
           let host = 'unparseable';
@@ -217,6 +221,49 @@ async function main() {
       } catch (err) {
         out(`  POST /v1/payment-requests -> ERROR ${err.message}`);
       }
+    }
+  }
+
+  // The rail question. The live create response carried "network_mode":"fixed",
+  // which may mean the merchant account serves ONE network while our product
+  // lets the client pick trc20/erc20/bep20. If the gateway silently coerces
+  // the rail, a member who picks BEP20 is charged on TRC20 — funds sent on the
+  // wrong chain. Ask the gateway directly, once per rail.
+  out('== rail probe (does the account serve every rail we offer?) ==');
+  for (const network of ['trc20', 'erc20', 'bep20']) {
+    try {
+      const res = await fetch(`${apiUrl}/v1/payment-requests`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          amount: '1.00',
+          asset: gw.asset || 'USDT',
+          network,
+          reference: `AGL-RAIL-${network}-${Date.now()}`,
+          description: `Aglotrends rail probe (${network})`,
+          return_url: `${(apiEnv.APP_URL || 'https://aglotrends.com').replace(/\/$/, '')}/wallet`,
+        }),
+        signal: timeout(),
+      });
+      const text = await res.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+      const served = parsed?.network ?? '?';
+      const mode = parsed?.network_mode ?? '?';
+      const addr = typeof parsed?.pay_address === 'string' ? parsed.pay_address : '';
+      const shape = addr.startsWith('0x') ? 'evm' : addr.startsWith('T') ? 'trc' : addr ? '?' : '-';
+      out(
+        `  asked ${network} -> ${res.status}  served=${served}  mode=${mode}  address_shape=${shape}`,
+      );
+      if (parsed && res.status >= 400) {
+        out(`      ${JSON.stringify(redact(parsed)).slice(0, 200)}`);
+      }
+    } catch (err) {
+      out(`  asked ${network} -> ERROR ${err.message}`);
     }
   }
 

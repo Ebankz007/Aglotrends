@@ -4,6 +4,7 @@ import {
   FEE_CENTS,
   buildMockCheckoutUrl,
   buildPaymentRequestBody,
+  extractWebhookEvent,
   isFabricatedCheckoutUrl,
   parseNetwork,
   parsePaymentRequestResponse,
@@ -207,5 +208,103 @@ describe('parsePaymentRequestResponse', () => {
     expect(() => parsePaymentRequestResponse(null)).toThrow(ApiError);
     expect(() => parsePaymentRequestResponse(undefined)).toThrow(ApiError);
     expect(() => parsePaymentRequestResponse('nonsense')).toThrow(ApiError);
+  });
+});
+
+/**
+ * The webhook contract, pinned from the LIVE rail's create response:
+ *   { token, status, settlement, amount, asset, network, network_mode, mode,
+ *     pay_address, reference, checkout_url, submitted_hash, expires_at,
+ *     created_at, paid_at }
+ *
+ * The join key is `reference`. A handler that only reads `payment_ref` would
+ * 400 on a real payment: the member pays, the ledger never credits, and the
+ * gateway gives up retrying. These tests are the tripwire.
+ */
+describe('extractWebhookEvent', () => {
+  it('joins on `reference` - the name the live gateway actually echoes', () => {
+    const event = extractWebhookEvent({
+      token: '037c40aad2394e2fb77d65f6f8644b30',
+      status: 'pending',
+      settlement: null,
+      amount: '1',
+      asset: 'USDT',
+      network: 'trc20',
+      mode: 'live',
+      reference: 'AGL-PROBE-1792590484437',
+      checkout_url: 'https://checkout.pay2crypto.com/037c40aa',
+      paid_at: null,
+    });
+    expect(event.paymentRef).toBe('AGL-PROBE-1792590484437');
+    expect(event.amount).toBe(1);
+    expect(event.settled).toBe(false);
+  });
+
+  it('still accepts the legacy `payment_ref` name', () => {
+    const event = extractWebhookEvent({ payment_ref: 'AGL-legacy', status: 'confirmed' });
+    expect(event.paymentRef).toBe('AGL-legacy');
+    expect(event.settled).toBe(true);
+  });
+
+  it('treats a confirmed status as settled', () => {
+    expect(
+      extractWebhookEvent({ reference: 'AGL-1', status: 'confirmed' }).settled,
+    ).toBe(true);
+    expect(extractWebhookEvent({ reference: 'AGL-1', status: 'paid' }).settled).toBe(true);
+    expect(
+      extractWebhookEvent({ reference: 'AGL-1', status: 'payment_completed' }).settled,
+    ).toBe(true);
+  });
+
+  it('reads a settled status nested in `settlement`', () => {
+    const event = extractWebhookEvent({
+      reference: 'AGL-1',
+      status: 'pending',
+      settlement: { status: 'confirmed', amount: '20.00' },
+    });
+    expect(event.settled).toBe(true);
+  });
+
+  it('treats a non-null paid_at as settled even without a status', () => {
+    const event = extractWebhookEvent({
+      reference: 'AGL-1',
+      status: 'pending',
+      paid_at: '2026-10-21T14:00:00+00:00',
+    });
+    expect(event.settled).toBe(true);
+  });
+
+  it('does NOT settle on a pending / created / broadcasting ping', () => {
+    for (const status of ['pending', 'created', 'broadcasting', 'confirming', 'processing']) {
+      expect(extractWebhookEvent({ reference: 'AGL-1', status }).settled).toBe(false);
+    }
+  });
+
+  it('does NOT settle on a missing status - fail closed, not free money', () => {
+    expect(extractWebhookEvent({ reference: 'AGL-1' }).settled).toBe(false);
+    expect(extractWebhookEvent({ reference: 'AGL-1', paid_at: null }).settled).toBe(false);
+  });
+
+  it('is not fooled by a status that merely contains a settled word', () => {
+    expect(extractWebhookEvent({ reference: 'AGL-1', status: 'unpaid' }).settled).toBe(false);
+    expect(extractWebhookEvent({ reference: 'AGL-1', status: 'not_paid' }).settled).toBe(false);
+    expect(extractWebhookEvent({ reference: 'AGL-1', status: 'unconfirmed' }).settled).toBe(false);
+  });
+
+  it('reads the amount from `amount` as well as `payment_amount`', () => {
+    expect(extractWebhookEvent({ reference: 'AGL-1', amount: '20.00' }).amount).toBe(20);
+    expect(extractWebhookEvent({ reference: 'AGL-1', payment_amount: 20 }).amount).toBe(20);
+    expect(extractWebhookEvent({ reference: 'AGL-1' }).amount).toBeUndefined();
+  });
+
+  it('finds the tx hash under any of the gateway id names', () => {
+    expect(extractWebhookEvent({ reference: 'AGL-1', submitted_hash: 'abc' }).txHash).toBe('abc');
+    expect(extractWebhookEvent({ reference: 'AGL-1', tx_hash: 'def' }).txHash).toBe('def');
+  });
+
+  it('survives a junk payload without throwing', () => {
+    expect(extractWebhookEvent(null).settled).toBe(false);
+    expect(extractWebhookEvent('nonsense').paymentRef).toBeUndefined();
+    expect(extractWebhookEvent({}).paymentRef).toBeUndefined();
   });
 });

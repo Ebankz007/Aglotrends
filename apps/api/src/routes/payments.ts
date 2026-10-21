@@ -16,6 +16,7 @@ paymentsRouter.use(requireAuth);
 
 const depositSchema = z.object({
   amountCents: z.number().int().positive().max(100_000_000),
+  network: z.enum(['trc20','erc20','bep20']).optional(),
 });
 
 /** One PENDING invoice per purpose per member — no invoice spam, ever. */
@@ -66,7 +67,8 @@ paymentsRouter.post(
       });
       return;
     }
-    const payment = await createPayment(req.user!.id, 'REGISTRATION');
+    const network = typeof req.body?.network === 'string' ? req.body.network : undefined;
+    const payment = await createPayment(req.user!.id, 'REGISTRATION', undefined, network);
     res.status(201).json({ payment });
   }),
 );
@@ -75,8 +77,8 @@ paymentsRouter.post(
 paymentsRouter.post(
   '/deposit',
   asyncHandler(async (req, res) => {
-    const { amountCents } = depositSchema.parse(req.body);
-    const payment = await createPayment(req.user!.id, 'DEPOSIT', amountCents);
+    const { amountCents, network } = depositSchema.parse(req.body);
+    const payment = await createPayment(req.user!.id, 'DEPOSIT', amountCents, network);
     res.status(201).json({ payment });
   }),
 );

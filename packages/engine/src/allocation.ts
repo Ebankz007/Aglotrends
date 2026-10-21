@@ -10,6 +10,7 @@ import {
   FEE_SPLIT_BPS,
   PLATFORM_FEE_CENTS,
   REGISTRATION_FEE_CENTS,
+  SUBSCRIPTION_SPLIT_BPS,
   TRADING_PROFIT_SPLIT_BPS,
 } from './constants.js';
 import { splitByBps } from './money.js';
@@ -144,4 +145,26 @@ export function splitPlatformFee(
     throw new Error(`splitPlatformFee: fee ${feeCents} exceeds gross ${grossCents}`);
   }
   return { netCents: grossCents - feeCents, feeCents };
+}
+
+/**
+ * Premium Signals subscription split.
+ * Mirrors SUBSCRIPTION_SPLIT_BPS: referralPool 30%, company 30%, provider 40%.
+ * Remainder goes to the last bucket to keep the sum exact.
+ */
+export function splitSubscriptionPayment(priceCents: number) {
+  if (!Number.isInteger(priceCents) || priceCents <= 0) {
+    throw new Error(`splitSubscriptionPayment: priceCents must be a positive integer, got ${priceCents}`);
+  }
+  const [referralPoolCents, companyCents, providerCents] = splitByBps(priceCents, [
+    SUBSCRIPTION_SPLIT_BPS.referralPool,
+    SUBSCRIPTION_SPLIT_BPS.company,
+    SUBSCRIPTION_SPLIT_BPS.provider,
+  ]) as [number, number, number];
+
+  if (referralPoolCents + companyCents + providerCents !== priceCents) {
+    throw new Error(`splitSubscriptionPayment: split does not reconcile. price=${priceCents}, sum=${referralPoolCents + companyCents + providerCents}`);
+  }
+
+  return { referralPoolCents, companyCents, providerCents };
 }

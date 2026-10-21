@@ -568,19 +568,19 @@ export async function fetchMyPayments(): Promise<PaymentDto[]> {
 }
 
 /** Create the §1 registration-fee invoice ($20, fixed by the server). */
-export async function createRegistrationPayment(): Promise<PaymentDto> {
+export async function createRegistrationPayment(network?: 'trc20'|'erc20'|'bep20'): Promise<PaymentDto> {
   const data = await request<{ payment: PaymentDto }>("/payments/registration", {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify({ network }),
   });
   return data.payment;
 }
 
 /** Create a crypto-deposit invoice; the wallet is credited when it confirms. */
-export async function createDeposit(amountCents: number): Promise<PaymentDto> {
+export async function createDeposit(amountCents: number, network?: 'trc20'|'erc20'|'bep20'): Promise<PaymentDto> {
   const data = await request<{ payment: PaymentDto }>("/payments/deposit", {
     method: "POST",
-    body: JSON.stringify({ amountCents }),
+    body: JSON.stringify({ amountCents, network }),
   });
   return data.payment;
 }

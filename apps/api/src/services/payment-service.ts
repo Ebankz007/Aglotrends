@@ -96,6 +96,7 @@ async function requestGatewayCheckout(input: {
   paymentRef: string;
   amountCents: number;
   purpose: PaymentPurpose;
+  network?: string;
 }): Promise<{ gatewayTxid: string | null; paymentUrl: string }> {
   // Gateway config resolves from the DB (console-managed) over the environment,
   // so a SUPERADMIN can point the rail at a live merchant without a redeploy.
@@ -113,7 +114,7 @@ async function requestGatewayCheckout(input: {
     purpose: input.purpose,
     returnUrl: `${config.APP_URL.replace(/\/$/, '')}/wallet`,
     asset: gw.asset,
-    network: gw.network,
+    network: input.network || gw.network,
   });
   const res = await fetch(`${gw.apiUrl}/v1/payment-requests`, {
     method: 'POST',
@@ -148,6 +149,7 @@ export async function createPayment(
   userId: string,
   purpose: PaymentPurpose,
   amountCents?: number,
+  network?: string,
 ): Promise<typeof schema.payments.$inferSelect> {
   const netCents = purpose === 'REGISTRATION' ? FEE_CENTS : amountCents;
   if (
@@ -165,10 +167,12 @@ export async function createPayment(
   const grossCents = (netCents as number) + feeCents;
 
   const paymentRef = `AGL-${randomUUID()}`;
+  const selectedNetwork = (network || 'trc20').toLowerCase();
   const { gatewayTxid, paymentUrl } = await requestGatewayCheckout({
     paymentRef,
     amountCents: grossCents,
     purpose,
+    network: selectedNetwork,
   });
 
   const [payment] = await db
@@ -178,6 +182,7 @@ export async function createPayment(
       purpose,
       amountCents: grossCents,
       platformFeeCents: feeCents,
+      network: selectedNetwork,
       paymentRef,
       gatewayTxid,
       paymentUrl,
@@ -219,6 +224,7 @@ export async function refreshCheckoutUrl(
     paymentRef,
     amountCents: payment.amountCents,
     purpose: payment.purpose as PaymentPurpose,
+    network: payment.network,
   });
   await db
     .update(schema.payments)

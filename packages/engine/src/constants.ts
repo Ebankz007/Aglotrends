@@ -73,6 +73,13 @@ export const TRADING_PROFIT_SPLIT_BPS = {
   company: 3000, // 30%
 } as const;
 
+/** Premium Signals subscription split. Sums to 10_000 bps. */
+export const SUBSCRIPTION_SPLIT_BPS = {
+  referralPool: 3000, // 30%
+  company: 3000,      // 30%
+  provider: 4000,     // 40%
+} as const;
+
 /** §5 — Associate Rank milestones. Team volume is measured in downline members. */
 export interface AssociateRankDef {
   readonly rankId: number;

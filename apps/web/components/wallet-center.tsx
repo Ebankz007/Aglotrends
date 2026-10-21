@@ -89,8 +89,10 @@ export function WalletCenter() {
   const [checkout, setCheckout] = useState<PaymentDto | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
+  const [registrationNetwork, setRegistrationNetwork] = useState<'trc20'|'erc20'|'bep20'>('trc20');
 
   const [depositAmount, setDepositAmount] = useState("");
+  const [depositNetwork, setDepositNetwork] = useState<'trc20'|'erc20'|'bep20'>('trc20');
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositBusy, setDepositBusy] = useState(false);
 
@@ -110,7 +112,7 @@ export function WalletCenter() {
     setPayError(null);
     setPayBusy(true);
     try {
-      const payment = await createRegistrationPayment();
+      const payment = await createRegistrationPayment(registrationNetwork);
       setCheckout(payment);
       reload();
     } catch (err) {
@@ -135,7 +137,7 @@ export function WalletCenter() {
     }
     setDepositBusy(true);
     try {
-      const payment = await createDeposit(Math.round(dollars * 100));
+      const payment = await createDeposit(Math.round(dollars * 100), depositNetwork);
       setCheckout(payment);
       setDepositAmount("");
       reload();
@@ -216,13 +218,25 @@ export function WalletCenter() {
               <Note tone="error">{payError}</Note>
             </div>
           )}
+          <div className="mt-3">
+            <Field
+              label="USDT Network"
+              as="select"
+              value={registrationNetwork}
+              onChange={(v) => setRegistrationNetwork(v as 'trc20'|'erc20'|'bep20')}
+            >
+              <option value="trc20">TRC20</option>
+              <option value="erc20">ERC20</option>
+              <option value="bep20">BEP20</option>
+            </Field>
+          </div>
           <div className="mt-4">
             <ActionButton onClick={onPayRegistration} disabled={payBusy}>
               {payBusy ? "Preparing checkout…" : "Pay $25.00 registration fee"}
             </ActionButton>
           </div>
           <p className="mt-3 text-xs text-mist">
-            Payment is in USDT (TRC20) via Pay2Crypto. Your account activates automatically once the
+            Payment is in USDT via Pay2Crypto. Your account activates automatically once the
             network confirms it.
           </p>
         </Panel>
@@ -277,6 +291,16 @@ export function WalletCenter() {
               onChange={setDepositAmount}
               placeholder="100.00"
             />
+            <Field
+              label="USDT Network"
+              as="select"
+              value={depositNetwork}
+              onChange={(v) => setDepositNetwork(v as 'trc20'|'erc20'|'bep20')}
+            >
+              <option value="trc20">TRC20</option>
+              <option value="erc20">ERC20</option>
+              <option value="bep20">BEP20</option>
+            </Field>
             {depositError && <Note tone="error">{depositError}</Note>}
             <ActionButton type="submit" disabled={depositBusy}>
               {depositBusy ? "Preparing checkout…" : "Deposit with USDT"}

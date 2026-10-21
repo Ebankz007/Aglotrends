@@ -440,6 +440,7 @@ export const payments = pgTable(
      */
     platformFeeCents: integer('platform_fee_cents').notNull().default(0),
     currency: text('currency').notNull().default('USDT'),
+    network: text('network').notNull().default('trc20'),
     status: paymentStatusEnum('status').notNull().default('PENDING'),
     /** Merchant-side reference echoed by the gateway (join key for webhooks). */
     paymentRef: text('payment_ref').notNull(),

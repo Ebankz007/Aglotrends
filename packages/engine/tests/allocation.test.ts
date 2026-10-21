@@ -7,6 +7,7 @@ import {
   REGISTRATION_FEE_CENTS,
   REGISTRATION_GROSS_CENTS,
   splitPlatformFee,
+  splitSubscriptionPayment,
 } from '../src/index.js';
 
 describe('§2 registration fee allocation', () => {
@@ -99,5 +100,28 @@ describe('§1 (amended) platform transaction fee', () => {
     expect(() => splitPlatformFee(20.5)).toThrow();
     expect(() => splitPlatformFee(2300, -1)).toThrow();
     expect(() => splitPlatformFee(2300, 2301)).toThrow();
+  });
+});
+
+describe('Premium Signals subscription split', () => {
+  it('splits a $50 plan 30/30/40 exactly', () => {
+    const s = splitSubscriptionPayment(5000);
+    expect(s.referralPoolCents).toBe(1500);
+    expect(s.companyCents).toBe(1500);
+    expect(s.providerCents).toBe(2000);
+    expect(s.referralPoolCents + s.companyCents + s.providerCents).toBe(5000);
+  });
+
+  it('reconciles for a spread of prices, no lost cents', () => {
+    for (const price of [1, 7, 99, 123, 4999, 5000, 15000, 25000, 99999]) {
+      const s = splitSubscriptionPayment(price);
+      expect(s.referralPoolCents + s.companyCents + s.providerCents).toBe(price);
+    }
+  });
+
+  it('rejects non-positive or non-integer price', () => {
+    expect(() => splitSubscriptionPayment(0)).toThrow();
+    expect(() => splitSubscriptionPayment(-1)).toThrow();
+    expect(() => splitSubscriptionPayment(20.5)).toThrow();
   });
 });

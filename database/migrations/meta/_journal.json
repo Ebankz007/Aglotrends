@@ -50,6 +50,13 @@
       "when": 1791987013141,
       "tag": "0006_swift_shotgun",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792404234435,
+      "tag": "0007_mixed_jamie_braddock",
+      "breakpoints": true
     }
   ]
 }

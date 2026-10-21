@@ -54,12 +54,12 @@ signalsRouter.get(
         if (s.visibility === 'FREE') return s;
         if (!s.authorId) return { ...s, teaser: true };
         const access = await getProviderAccess(userId, s.authorId);
-        if (access.hasAccess) return s;
+        if (access.hasAccess) return { ...s, grace: false };
         if (access.inGrace) {
           const publishedAt = s.publishedAt ? new Date(s.publishedAt) : null;
           const expiresAt = access.expiresAt ? new Date(access.expiresAt) : null;
           if (publishedAt && expiresAt && publishedAt <= expiresAt) {
-            return s; // existing signal readable during grace
+            return { ...s, grace: true };
           }
         }
         // teaser
@@ -95,13 +95,13 @@ signalsRouter.get(
       }
       const access = await getProviderAccess(userId, signal.authorId);
       if (access.hasAccess) {
-        return res.json({ signal });
+        return res.json({ signal: { ...signal, grace: false } });
       }
       if (access.inGrace) {
         const publishedAt = signal.publishedAt ? new Date(signal.publishedAt) : null;
         const expiresAt = access.expiresAt ? new Date(access.expiresAt) : null;
         if (publishedAt && expiresAt && publishedAt <= expiresAt) {
-          return res.json({ signal });
+          return res.json({ signal: { ...signal, grace: true } });
         }
       }
       return res.json({ signal: { id: signal.id, title: signal.title, instrument: signal.instrument, visibility: 'PREMIUM', teaser: true } });

@@ -17,13 +17,11 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  * every real callback was answered 401. The member paid, the gateway
  * confirmed, the ledger never moved, and the dashboard stayed inactive.
  *
- * The signed string is not published on any public Pay2Crypto page, so the
- * verifier does not GUESS it: it tries the documented-by-analogy candidates
- * and accepts ONLY a candidate whose HMAC actually reproduces the `v1` the
- * gateway sent. A match is cryptographic proof, so the first match IS the
- * scheme — there is no "close enough" branch. The scheme that matched is
- * logged, so the running system tells us which one it is, and the pair is
- * then pinned by a unit test.
+ * SIGNING STRING (pinned from live resend evt_688602ff858d019104b4c49e0f855aee,
+ * 2026-10-22): `HMAC-SHA256(webhook_secret, "${timestamp}.${rawBody}")` where
+ * `rawBody` is the exact bytes received (no re-serialisation). The verifier
+ * still tries candidate schemes as a defence in depth, but the live path is
+ * `ts.body + raw body`.
  */
 
 export interface ParsedP2CSignature {

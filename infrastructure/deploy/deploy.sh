@@ -68,17 +68,11 @@ RECONCILE_EVERY_MIN=10
 # live account: TRC20 (2 receiving addresses) and BEP20 (1) exist; ERC20 has
 # none until an address is added in the Pay2Crypto dashboard.
 SYNC_NETWORKS="trc20,bep20"
-# ── TEMPORARY: the callback capture window ──────────────────
-# Pay2Crypto signs every callback (`x-p2c-signature: t=…,v1=…`) but publishes
-# no signing string, and the endpoint used to demand a shared-secret header
-# the gateway never sends — so every real callback was answered 401 and a
-# confirmed payment never activated the member's dashboard.
-#
-# While this is "1", the API logs the raw body of a callback it could not
-# verify, so the scheme is derived from evidence instead of guessed. REMOVE
-# THIS LINE once the scheme is pinned by a test — a production log should not
-# keep bodies for longer than the investigation needs them.
-WEBHOOK_CAPTURE="1"
+# ── Callback capture window (CLOSED) ─────────────────────────
+# Pay2Crypto signs every callback (`x-p2c-signature: t=…,v1=…`) as
+# `HMAC-SHA256(secret, "${timestamp}.${rawBody}")` with the exact raw body.
+# Pinned from the live resend (evt_688602ff858d019104b4c49e0f855aee) on
+# 2026-10-22. Capture removed.
 # Absolute node/pnpm first: webhook/cron shells carry a minimal PATH.
 export PATH="/www/server/nodejs/v24.18.0/bin:$PATH"
 # ─────────────────────────────────────────────────────────

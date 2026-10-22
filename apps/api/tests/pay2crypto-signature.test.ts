@@ -163,6 +163,43 @@ describe('verifyP2CSignature', () => {
     });
     expect(result.ok).toBe(true);
   });
+
+  it('verifies the live scheme: ts.body + raw body (confirmed resend)', () => {
+    const liveBody = JSON.stringify({
+      id: 'evt_688602ff858d019104b4c49e0f855aee',
+      type: 'payment.confirmed',
+      created_at: '2026-10-22T04:39:17+00:00',
+      data: {
+        token: 'be0d4e077f28ae6eab8ad422bbd6c00c',
+        status: 'confirmed',
+        amount: '25',
+        amount_paid: '25',
+        settlement: 'over',
+        asset: 'USDT',
+        network: 'bep20',
+        pay_address: '0xa0219ea3b220d52f3e8749db4e88e6752cb900b8',
+        reference: 'AGL-771529a7-76ab-4c04-a4a6-db84863eddf8',
+        description: 'Aglotrends registration fee — $25.00',
+        submitted_hash: '0x123',
+        checkout_url: 'https://checkout.pay2crypto.com/be0d4e077f28ae6eab8ad422bbd6c00c',
+        created_at: '2026-10-22T03:26:36+00:00',
+        paid_at: '2026-10-22T04:39:17+00:00',
+      },
+    });
+    const t = 1792643157;
+    const secret = 'test-webhook-secret';
+    const sig = createHmac('sha256', secret).update(`${t}.${liveBody}`, 'utf8').digest('hex');
+    const result = verifyP2CSignature({
+      header: `t=${t},v1=${sig}`,
+      rawBody: liveBody,
+      secrets: [secret],
+      deliveryId: 'evt_688602ff858d019104b4c49e0f855aee',
+      event: 'payment.confirmed',
+      now: t * 1000 + 1000,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.scheme).toBe('ts.body + raw body');
+  });
 });
 
 describe('secureEqualHex', () => {

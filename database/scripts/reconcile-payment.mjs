@@ -64,6 +64,10 @@ const THROTTLE_MIN = (() => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 })();
 const THROTTLE_FILE = '/tmp/aglotrends-reconcile-last.txt';
+/** Pay2Crypto payment requests live for one hour. */
+const CHECKOUT_WINDOW_MIN = 60;
+/** Extra slack before a request that the gateway never knew is written off. */
+const ABSENCE_MARGIN_MIN = 30;
 
 const out = (line) => process.stdout.write(`${line}\n`);
 
@@ -196,7 +200,7 @@ async function main() {
   await client.connect();
 
   const params = [`select p.id, p.user_id, p.purpose, p.status, p.amount_cents, p.currency,
-                          p.network, p.payment_ref, p.gateway_txid, p.created_at, p.expires_at,
+                          p.network, p.payment_ref, p.gateway_txid, p.created_at,
                           u.email, u.is_active_member
                      from payments p join users u on u.id = p.user_id
                     where p.status = 'PENDING'`];
@@ -340,18 +344,25 @@ async function main() {
     } else if (!record) {
       // The gateway does not know this reference. That is only meaningful if
       // its list is complete - otherwise we are looking at a truncated list
-      // and know nothing. A complete list plus our own expiry having passed
-      // means the checkout is dead: the request is not payable and it is
-      // holding the member's slot.
-      const expired = p.expires_at ? new Date(p.expires_at).getTime() < Date.now() : false;
-      if (listComplete && expired) {
-        deadTargets.push({ payment: p, record: { status: 'expired', reason: 'our expiry passed, the gateway never knew it' } });
-        out(`     the gateway does not list this reference and our own expiry has passed - releasing it.`);
+      // and know nothing. A complete list plus the checkout window having
+      // closed means the request is not payable and it is holding the
+      // member's slot. Pay2Crypto requests live for 1 hour; the margin is
+      // there so a request that was refreshed (which keeps the row but
+      // rewrites the reference) is never judged on a stale clock.
+      const ageMin = p.created_at ? (Date.now() - new Date(p.created_at).getTime()) / 60_000 : 0;
+      const dead = ageMin > CHECKOUT_WINDOW_MIN + ABSENCE_MARGIN_MIN;
+      if (listComplete && dead) {
+        deadTargets.push({
+          payment: p,
+          record: { status: 'expired', reason: `our checkout window closed ${Math.round(ageMin)} min ago and the gateway never knew it` },
+        });
+        out(`     the gateway does not list this reference and the checkout window has closed - releasing it.`);
       } else {
         out(
           `     the gateway does not list this reference` +
             `${listComplete ? ' (its list is complete)' : ' (its list is incomplete - proves nothing)'}` +
-            `${expired ? '' : ' (our expiry has not passed yet)'} - leaving it PENDING, because a missing record is not proof of anything.`,
+            `${dead ? '' : ` (the checkout window is still open, ${Math.round(ageMin)} min old)`}` +
+            ` - leaving it PENDING, because a missing record is not proof of anything.`,
         );
       }
     }

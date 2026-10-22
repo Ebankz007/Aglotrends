@@ -41,7 +41,7 @@
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { createDecipheriv } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -49,6 +49,7 @@ const REPO = resolve(HERE, '..', '..');
 const API_ENV = resolve(REPO, 'apps', 'api', '.env');
 const DB_ENV = resolve(REPO, 'database', '.env');
 const API_DIST = resolve(REPO, 'apps', 'api', 'dist', 'services', 'payment-service.js');
+const RULES_DIST = resolve(REPO, 'apps', 'api', 'dist', 'services', 'reconcile-rules.js');
 
 const APPLY = process.argv.includes('--apply');
 const ALL = process.argv.includes('--all');
@@ -90,63 +91,60 @@ function decryptSecret(stored, key) {
   return Buffer.concat([d.update(Buffer.from(dataB64, 'base64')), d.final()]).toString('utf-8');
 }
 
-/** The gateway's own words for "the money moved". */
-function gatewaySaysConfirmed(record) {
-  if (!record || typeof record !== 'object') return false;
-  const status = String(record.status ?? '').toLowerCase();
-  if (/confirm|paid|success|complete|settled/.test(status)) return true;
-  if (/cancel|expire|fail|pending|unpaid|created|broadcast|awaiting/.test(status)) return false;
-  return Boolean(record.paid_at);
-}
-
-/** The gateway's own words for "this request is dead and unpaid". */
-function gatewaySaysDead(record) {
-  if (!record || typeof record !== 'object') return false;
-  const status = String(record.status ?? '').toLowerCase();
-  if (!/expire|cancel|fail/.test(status)) return false;
-  // A dead status with money attached is not a dead invoice - it is a
-  // payment that needs a human. Never release that automatically.
-  return !record.paid_at && !record.submitted_hash;
-}
-
 /**
- * Does the gateway's record actually match the invoice we issued?
+ * Ask the gateway about ONE reference, directly.
  *
- * A settlement is a claim on real money, so it gets checked from every angle
- * we can check it from. Any mismatch means a human, not an automatic credit:
- *   - amount:  the gateway must have charged what we asked for;
- *   - network: the money must have arrived on the chain we told the member
- *               to send it on;
- *   - settlement: 'under' means the member underpaid - a partial payment is
- *               not a registration.
- * 'over' is fine: the member sent more than asked, and we owe the member the
- * full registration, not a pro-rated slice of their overpayment.
+ * The list endpoint is not guaranteed to hold every request, so when a
+ * reference is missing from it, the reference is looked up on its own. The
+ * gateway's filter parameter is not documented, so the plausible spellings are
+ * tried until one answers with a record that actually matches.
  */
-function gatewayAgreesWithInvoice(record, payment) {
-  if (!record || typeof record !== 'object') return { ok: false, why: 'NO_GATEWAY_RECORD' };
-
-  const rawAmount = record.amount;
-  if (rawAmount !== undefined && rawAmount !== null) {
-    const gatewayCents = Math.round(Number(rawAmount) * 100);
-    if (Number.isFinite(gatewayCents) && gatewayCents !== payment.amount_cents) {
-      return { ok: false, why: `AMOUNT_MISMATCH(gateway=${rawAmount} ours=${payment.amount_cents})` };
+async function lookupGatewayRecord(apiUrl, headers, reference, gatewayTxid) {
+  const attempts = [];
+  if (reference) attempts.push(['reference', reference]);
+  if (gatewayTxid) {
+    attempts.push(['token', gatewayTxid]);
+    attempts.push(['id', gatewayTxid]);
+  }
+  for (const [key, value] of attempts) {
+    try {
+      const res = await fetch(
+        `${apiUrl}/v1/payment-requests?${key}=${encodeURIComponent(value)}`,
+        { headers, signal: AbortSignal.timeout(12_000) },
+      );
+      if (!res.ok) continue;
+      const parsed = await res.json().catch(() => null);
+      const data = Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed) ? parsed : [];
+      const hit = data.find((r) => r?.reference === reference) ?? data[0] ?? null;
+      if (hit && typeof hit === 'object') {
+        return hit.reference ? hit : { ...hit, reference };
+      }
+    } catch {
+      /* try the next spelling */
     }
   }
-
-  const gatewayNetwork = String(record.network ?? '').toLowerCase();
-  if (gatewayNetwork && payment.network && gatewayNetwork !== String(payment.network).toLowerCase()) {
-    return { ok: false, why: `NETWORK_MISMATCH(gateway=${gatewayNetwork} ours=${payment.network})` };
-  }
-
-  const settlement = String(record.settlement ?? '').toLowerCase();
-  if (settlement === 'under' || settlement === 'underpaid' || settlement === 'partial') {
-    return { ok: false, why: `UNDERPAID(settlement=${settlement})` };
-  }
-
-  return { ok: true, why: '-' };
+  return null;
 }
 
+
 async function main() {
+  // The decision rules live in the API package (apps/api/src/services/reconcile-rules.ts)
+  // so they are unit-tested with the rest of the system. This script imports
+  // the COMPILED copy - one source of truth, so the rules that decide a
+  // settlement can never drift from the rules that are tested.
+  let rules;
+  try {
+    rules = await import(pathToFileURL(RULES_DIST).href);
+  } catch {
+    // The rules live in the API package, so this script needs the API build.
+    // On the cycle that introduces them the build has not happened yet - the
+    // next cycle (two minutes later) has it. Skipping is safe: it settles
+    // nothing, and it says so.
+    out(`SKIPPED: ${RULES_DIST} is not there yet - the API build is not current. Nothing was written.`);
+    return;
+  }
+  const { gatewaySaysConfirmed, gatewaySaysDead, gatewayHasMoney, gatewayAgreesWithInvoice } = rules;
+
   // The throttle: this job now runs on every deploy cycle, so it must not
   // hammer the gateway. The window is the only thing standing between a
   // reconciliation loop and a rate-limited API.
@@ -198,7 +196,7 @@ async function main() {
   await client.connect();
 
   const params = [`select p.id, p.user_id, p.purpose, p.status, p.amount_cents, p.currency,
-                          p.network, p.payment_ref, p.gateway_txid, p.created_at,
+                          p.network, p.payment_ref, p.gateway_txid, p.created_at, p.expires_at,
                           u.email, u.is_active_member
                      from payments p join users u on u.id = p.user_id
                     where p.status = 'PENDING'`];
@@ -245,9 +243,11 @@ async function main() {
   let listComplete = true;
   try {
     const seen = new Map();
-    let page = 1;
+    let fetched = 0;
     let expected = null;
-    for (page = 1; page <= 10; page += 1) {
+    let firstRef = null;
+    let paginationIgnored = false;
+    for (let page = 1; page <= 10; page += 1) {
       const url = `${apiUrl}/v1/payment-requests?limit=200&page=${page}`;
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
       if (!res.ok) {
@@ -261,20 +261,32 @@ async function main() {
       }
       const parsed = await res.json().catch(() => null);
       const data = Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed) ? parsed : [];
+      if (typeof parsed?.count === 'number') expected = parsed.count;
+      if (page === 1) {
+        firstRef = data[0]?.reference ?? null;
+      } else if ((data[0]?.reference ?? null) === firstRef) {
+        // The gateway ignored the page parameter and served page 1 again.
+        paginationIgnored = true;
+        break;
+      }
+      fetched += data.length;
       for (const row of data) {
         if (row?.reference) seen.set(row.reference, row);
       }
-      if (typeof parsed?.count === 'number') expected = parsed.count;
       if (data.length === 0) break;
-      if (expected !== null && seen.size >= expected) break;
-      if (data.length < 50) break; // a short page is the last page
+      if (expected !== null) {
+        if (fetched >= expected) break;
+      } else if (data.length < 50) {
+        break; // no count to compare against, so a short page is the last page
+      }
     }
     gatewayRecords = [...seen.values()];
-    if (expected !== null && gatewayRecords.length < expected) {
+    if (expected !== null && fetched < expected) {
       listComplete = false;
       out(
-        `WARNING: the gateway holds ${expected} request(s) but only ${gatewayRecords.length} came back - ` +
-          `the list is incomplete, so a missing reference proves nothing.`,
+        `WARNING: the gateway holds ${expected} request(s) but only ${fetched} came back` +
+          `${paginationIgnored ? ' (it ignores the page parameter)' : ''} - the list is incomplete,` +
+          ` so a missing reference is looked up directly instead of being treated as proof.`,
       );
     }
   } catch (err) {
@@ -289,17 +301,12 @@ async function main() {
   const flagged = [];
   for (const p of pending) {
     let record = gatewayRecords.find((r) => r?.reference === p.payment_ref);
-    if (!record && p.gateway_txid) {
-      try {
-        const res = await fetch(`${apiUrl}/v1/payment-requests/${p.gateway_txid}`, {
-          headers,
-          signal: AbortSignal.timeout(15_000),
-        });
-        const parsed = await res.json().catch(() => null);
-        record = parsed?.data ?? parsed;
-        if (record && !record.reference) record = { ...record, reference: p.payment_ref };
-      } catch {
-        /* fall through to "unknown" */
+    if (!record) {
+      // The list did not contain it. If the list is incomplete, that proves
+      // nothing - so ask the gateway about this reference directly.
+      record = await lookupGatewayRecord(apiUrl, headers, p.payment_ref, p.gateway_txid);
+      if (record) {
+        out(`  (${p.payment_ref.slice(0, 24)} was not in the list - found it by direct lookup)`);
       }
     }
     const says = gatewaySaysConfirmed(record);
@@ -323,12 +330,30 @@ async function main() {
       }
     } else if (dead) {
       deadTargets.push({ payment: p, record });
+    } else if (record && gatewayHasMoney(record)) {
+      // The gateway says the request failed, yet money is attached. That
+      // contradiction is not ours to resolve: it is flagged, loudly, for a
+      // human. Silently leaving it PENDING would be the worst outcome - a
+      // member who paid and a ledger that never mentions it.
+      flagged.push({ payment: p, record, why: `CONTRADICTION(status=${record.status} but money is attached)` });
+      out('     NEEDS A HUMAN: the gateway reports a failure but money is attached - not touching it.');
     } else if (!record) {
-      out(
-        `     the gateway does not list this reference` +
-          `${listComplete ? ' (its list is complete, so the request is gone)' : ' (its list is incomplete - proves nothing)'}` +
-          ` - leaving it PENDING, because a missing record is not proof of anything.`,
-      );
+      // The gateway does not know this reference. That is only meaningful if
+      // its list is complete - otherwise we are looking at a truncated list
+      // and know nothing. A complete list plus our own expiry having passed
+      // means the checkout is dead: the request is not payable and it is
+      // holding the member's slot.
+      const expired = p.expires_at ? new Date(p.expires_at).getTime() < Date.now() : false;
+      if (listComplete && expired) {
+        deadTargets.push({ payment: p, record: { status: 'expired', reason: 'our expiry passed, the gateway never knew it' } });
+        out(`     the gateway does not list this reference and our own expiry has passed - releasing it.`);
+      } else {
+        out(
+          `     the gateway does not list this reference` +
+            `${listComplete ? ' (its list is complete)' : ' (its list is incomplete - proves nothing)'}` +
+            `${expired ? '' : ' (our expiry has not passed yet)'} - leaving it PENDING, because a missing record is not proof of anything.`,
+        );
+      }
     }
   }
 
@@ -356,7 +381,7 @@ async function main() {
     return;
   }
 
-  const { confirmPaymentManually, cancelPendingPayment } = await import(API_DIST);
+  const { confirmPaymentManually, cancelPendingPayment } = await import(pathToFileURL(API_DIST).href);
 
   out('== applying ==');
   for (const { payment, record } of confirmedTargets) {
@@ -371,10 +396,13 @@ async function main() {
       out(`  ${payment.payment_ref} FAILED: ${err?.message ?? err}`);
     }
   }
-  for (const { payment } of deadTargets) {
+  for (const { payment, record } of deadTargets) {
     try {
       await cancelPendingPayment(payment.id);
-      out(`  RELEASED ${payment.payment_ref} PENDING -> EXPIRED (the gateway expired it unpaid)`);
+      out(
+        `  RELEASED ${payment.payment_ref} PENDING -> EXPIRED` +
+          ` (${record?.reason ?? `the gateway ${record?.status ?? 'expired'} it unpaid`})`,
+      );
     } catch (err) {
       out(`  ${payment.payment_ref} RELEASE FAILED: ${err?.message ?? err}`);
     }

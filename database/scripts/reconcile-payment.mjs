@@ -64,6 +64,8 @@ const THROTTLE_MIN = (() => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 })();
 const THROTTLE_FILE = '/tmp/aglotrends-reconcile-last.txt';
+/** Hard ceiling on the whole job. It runs inside the deploy lock. */
+const WATCHDOG_MS = 120_000;
 /** Pay2Crypto payment requests live for one hour. */
 const CHECKOUT_WINDOW_MIN = 60;
 /** Extra slack before a request that the gateway never knew is written off. */
@@ -132,6 +134,17 @@ async function lookupGatewayRecord(apiUrl, headers, reference, gatewayTxid) {
 
 
 async function main() {
+  // A watchdog, because this job runs INSIDE the deploy lock. A hung child
+  // would hold the lock and silently stop every future deploy - the failure
+  // mode is invisible from the outside, so the job must not be allowed to
+  // outlive its budget. `unref` keeps it from holding the loop open by
+  // itself: it only fires when something else is keeping us alive.
+  const watchdog = setTimeout(() => {
+    out('FATAL: the reconcile exceeded its time budget - exiting so the deploy lock is released.');
+    process.exit(3);
+  }, WATCHDOG_MS);
+  watchdog.unref?.();
+
   // The decision rules live in the API package (apps/api/src/services/reconcile-rules.ts)
   // so they are unit-tested with the rest of the system. This script imports
   // the COMPILED copy - one source of truth, so the rules that decide a
@@ -192,21 +205,30 @@ async function main() {
     return;
   }
 
+  // Every database handle is closed on every path. An open pg socket keeps
+  // the event loop alive, so a query that throws before `end()` would leave
+  // this process running forever - and because this job runs inside the
+  // deploy lock, that would stop every future deploy. The cost of getting
+  // this wrong is invisible, so the closing is structural, not a habit.
   const client = new pg.Client({
     connectionString: dbUrl,
     connectionTimeoutMillis: 10_000,
     query_timeout: 20_000,
   });
-  await client.connect();
-
-  const params = [`select p.id, p.user_id, p.purpose, p.status, p.amount_cents, p.currency,
-                          p.network, p.payment_ref, p.gateway_txid, p.created_at,
-                          u.email, u.is_active_member
-                     from payments p join users u on u.id = p.user_id
-                    where p.status = 'PENDING'`];
-  if (REF_ARG) params.push(`and p.payment_ref = $1`);
-  const { rows: pending } = await client.query(params.join(' '), REF_ARG ? [REF_ARG] : []);
-  await client.end();
+  let pending;
+  try {
+    await client.connect();
+    const params = [`select p.id, p.user_id, p.purpose, p.status, p.amount_cents, p.currency,
+                            p.network, p.payment_ref, p.gateway_txid, p.created_at,
+                            u.email, u.is_active_member
+                       from payments p join users u on u.id = p.user_id
+                      where p.status = 'PENDING'`];
+    if (REF_ARG) params.push(`and p.payment_ref = $1`);
+    const { rows } = await client.query(params.join(' '), REF_ARG ? [REF_ARG] : []);
+    pending = rows;
+  } finally {
+    await client.end().catch(() => {});
+  }
 
   if (pending.length === 0) {
     out('No PENDING payment to reconcile.');
@@ -229,10 +251,14 @@ async function main() {
   }
   const key = /^[0-9a-fA-F]{64}$/.test(rawKey) ? Buffer.from(rawKey, 'hex') : Buffer.from(rawKey, 'base64');
   const conn = new pg.Client({ connectionString: dbUrl, connectionTimeoutMillis: 10_000 });
-  await conn.connect();
-  const { rows: cfgRows } = await conn.query("select value from app_config where key = 'payment.gateway'");
-  await conn.end();
-  const gw = cfgRows[0]?.value ?? {};
+  let gw;
+  try {
+    await conn.connect();
+    const { rows: cfgRows } = await conn.query("select value from app_config where key = 'payment.gateway'");
+    gw = cfgRows[0]?.value ?? {};
+  } finally {
+    await conn.end().catch(() => {});
+  }
   const token = decryptSecret(String(gw.token ?? ''), key);
   const apiUrl = (gw.apiUrl || 'https://api.pay2crypto.com').replace(/\/+$/, '');
   if (!token) {
@@ -449,5 +475,9 @@ async function main() {
 
 main().catch((err) => {
   out(`FATAL: ${err.stack ?? err.message}`);
-  process.exitCode = 2;
+  out('Nothing was written.');
+  // Exit hard. This job runs inside the deploy lock, so a process that lingers
+  // on an open handle stops every future deploy. An explicit exit is the
+  // difference between "this run failed" and "the pipeline is dead".
+  process.exit(2);
 });

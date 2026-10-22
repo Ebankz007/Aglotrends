@@ -75,9 +75,42 @@ function cmdline(pid) {
 }
 
 function uptimeSeconds() {
-  const raw = readProc(1, 'uptime');
-  if (!raw) return null;
+  // /proc/uptime is top level - there is no /proc/1/uptime.
+  let raw = null;
+  try {
+    raw = readFileSync('/proc/uptime', 'utf-8');
+  } catch {
+    return null;
+  }
   const value = Number(raw.trim().split(/\s+/)[0]);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Age of a process in seconds, from /proc/<pid>/stat starttime (ticks since
+ * boot) against the boot clock. Two sources, because either one alone can be
+ * unreadable in a container: /proc/uptime (seconds since boot) and the
+ * `btime` line of /proc/stat (boot epoch).
+ */
+function processAgeSec(stat) {
+  const uptime = uptimeSeconds();
+  if (uptime !== null) return uptime - stat.starttime / HZ;
+  const btime = bootEpoch();
+  if (btime !== null) return Date.now() / 1000 - btime - stat.starttime / HZ;
+  return null;
+}
+
+/** The boot epoch from /proc/stat's btime line. */
+function bootEpoch() {
+  let raw = null;
+  try {
+    raw = readFileSync('/proc/stat', 'utf-8');
+  } catch {
+    return null;
+  }
+  const m = /^btime\s+(\d+)/m.exec(raw);
+  if (!m) return null;
+  const value = Number(m[1]);
   return Number.isFinite(value) ? value : null;
 }
 
@@ -91,8 +124,9 @@ if (targets.length === 0) {
 }
 
 const uptime = uptimeSeconds();
-if (uptime === null) {
-  out('FATAL: cannot read /proc/1/uptime - refusing to kill anything');
+const btime = bootEpoch();
+if (uptime === null && btime === null) {
+  out('FATAL: cannot read the boot clock (/proc/uptime, /proc/stat) - refusing to kill anything');
   process.exit(2);
 }
 
@@ -147,7 +181,12 @@ for (const target of ordered) {
     continue;
   }
 
-  const ageSec = uptime - stat.starttime / HZ;
+  const ageSec = processAgeSec(stat);
+  if (ageSec === null) {
+    out(`SKIPPED: ${label} - cannot work out how old it is - refusing to kill`);
+    skipped += 1;
+    continue;
+  }
   if (ageSec < minAgeSec) {
     out(`SKIPPED: ${label} - only ${ageSec.toFixed(0)}s old (a live deploy is younger than ${minAgeSec}s)`);
     skipped += 1;

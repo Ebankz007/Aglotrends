@@ -47,7 +47,7 @@ DIAG_RECONCILE_ID="rec-1"
 # have deleted the lock of whatever deploy was running next. The script
 # verifies the command line AND the process age before it kills anything, and
 # kills the shell first so the trap never fires.
-DIAG_KILL_STALE_ID="kill-stale-1"
+DIAG_KILL_STALE_ID="kill-stale-2"
 DIAG_KILL_STALE_TARGETS="13366:deploy.sh 13403:reconcile-payment.mjs"
 DIAG_KILL_STALE_MIN_AGE_SEC=600
 # ── The reconciliation loop ─────────────────────────────────────

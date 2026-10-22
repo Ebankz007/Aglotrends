@@ -40,6 +40,16 @@ DIAG_WEBHOOK_CONFIG_ID="whcfg-1"
 # by default (the script only settles when it is given --apply AND the gateway
 # confirms the money moved).
 DIAG_RECONCILE_ID="rec-1"
+# One-shot: kill a deploy that wedged the box. On 2026-10-22 a reconcile that
+# failed hard left its node process alive (an open database handle keeps the
+# event loop alive), so its parent deploy shell waited forever - and that
+# shell's EXIT trap deletes the lock directory, so when it unwound it would
+# have deleted the lock of whatever deploy was running next. The script
+# verifies the command line AND the process age before it kills anything, and
+# kills the shell first so the trap never fires.
+DIAG_KILL_STALE_ID="kill-stale-1"
+DIAG_KILL_STALE_TARGETS="13366:deploy.sh 13403:reconcile-payment.mjs"
+DIAG_KILL_STALE_MIN_AGE_SEC=600
 # ── The reconciliation loop ─────────────────────────────────────
 # The callback is the fast path; this is the ground truth path. The gateway
 # delivered twice in four hours and NOT AT ALL for the one payment that
@@ -161,6 +171,22 @@ run_diag payments "$APP_DIR/database/scripts/expire-mock-payments.mjs" "$DIAG_PA
 run_diag webhook "$APP_DIR/database/scripts/diagnose-webhook.mjs" "$DIAG_WEBHOOK_ID"
 run_diag reconcile "$APP_DIR/database/scripts/reconcile-payment.mjs" "$DIAG_RECONCILE_ID"
 run_diag webhook_config "$APP_DIR/database/scripts/diagnose-webhook-config.mjs" "$DIAG_WEBHOOK_CONFIG_ID"
+
+# The stale-process cleanup is a shell concern, not a node script, but it keeps
+# the same one-shot discipline: an id records that it already ran.
+if [ -n "$DIAG_KILL_STALE_ID" ] && [ -f "$APP_DIR/database/scripts/kill-stale-deploy.mjs" ]; then
+  _kill_sentinel="/tmp/aglotrends-diag-kill_stale.done"
+  if [ "$(cat "$_kill_sentinel" 2>/dev/null || echo none)" != "$DIAG_KILL_STALE_ID" ]; then
+    log "running diagnostic kill_stale ($DIAG_KILL_STALE_ID)"
+    (
+      set --
+      for _t in $DIAG_KILL_STALE_TARGETS; do set -- "$@" "--target=$_t"; done
+      node "$APP_DIR/database/scripts/kill-stale-deploy.mjs" "$@" \
+        --min-age-sec="$DIAG_KILL_STALE_MIN_AGE_SEC" --apply
+    ) || log "diagnostic kill_stale exited non-zero (continuing)"
+    echo "$DIAG_KILL_STALE_ID" > "$_kill_sentinel"
+  fi
+fi
 
 # ── The reconciliation loop ───────────────────────────────────
 # Standing job, not a one-shot: it runs on every cycle and throttles itself.

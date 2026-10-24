@@ -94,7 +94,7 @@ export default async function MarketingLayout({
       <header className="sticky top-0 z-40 border-b border-white/10 bg-night/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight">
-            <img src="/logo-icon.svg" alt="Aglotrends" className="h-8 w-8" />
+            <img src="/logo-icon.svg" alt="Aglotrends" className="h-12 w-12" />
             Aglotrends
           </Link>
           <nav className="hidden items-center gap-6 text-sm text-mist md:flex">
@@ -128,7 +128,7 @@ export default async function MarketingLayout({
           <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
             <div>
               <Link href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight">
-                <img src="/logo-icon.svg" alt="Aglotrends" className="h-8 w-8" />
+                <img src="/logo-icon.svg" alt="Aglotrends" className="h-12 w-12" />
                 Aglotrends
               </Link>
               <p className="mt-4 max-w-xs text-sm text-mist">{footer.tagline}</p>

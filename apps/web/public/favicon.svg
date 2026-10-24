@@ -1,24 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
-  <!-- Aglotrends favicon: stylized ribbon "A" -->
+  <!-- Aglotrends favicon: bold ribbon "A", visible at 16x16 tab size -->
   <defs>
     <linearGradient id="favGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#22d3ee" />
-      <stop offset="50%" stop-color="#2f7bf6" />
       <stop offset="100%" stop-color="#1d4ed8" />
-    </linearGradient>
-    <linearGradient id="favGradRev" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1d4ed8" />
-      <stop offset="50%" stop-color="#2f7bf6" />
-      <stop offset="100%" stop-color="#22d3ee" />
     </linearGradient>
   </defs>
 
   <!-- Left ribbon band -->
-  <path d="M 7 21 C 7 21 7 12 13 12 C 19 12 19 21 19 21 L 19 21 L 13 21 Z" fill="url(#favGrad)" />
+  <path d="M 8 25 C 8 25 8 11 13 11 C 18 11 18 25 18 25 L 18 25 L 13 25 Z" fill="url(#favGrad)" />
   <!-- Right ribbon band -->
-  <path d="M 19 21 L 25 21 C 25 21 25 12 20 12 C 15 12 15 21 15 21 L 15 21 L 19 21 Z" fill="url(#favGradRev)" />
+  <path d="M 18 25 L 24 25 C 24 25 24 11 20 11 C 16 11 16 25 16 25 L 16 25 L 18 25 Z" fill="url(#favGrad)" />
   <!-- Cross ribbon -->
-  <path d="M 13 16 C 13 16 13 21 20 21 C 27 21 27 16 27 16 L 27 16 L 20 16 Z" fill="url(#favGrad)" />
+  <path d="M 13 18 C 13 18 13 25 20 25 C 27 25 27 18 27 18 L 27 18 L 20 18 Z" fill="url(#favGrad)" />
   <!-- Bottom inner ribbon -->
-  <path d="M 13 21 C 13 21 13 19 16 19 C 19 19 19 21 19 21 L 19 21 L 13 21 Z" fill="url(#favGradRev)" />
+  <path d="M 13 25 C 13 25 13 22 16 22 C 19 22 19 25 19 25 L 19 25 L 13 25 Z" fill="#1d4ed8" />
 </svg>

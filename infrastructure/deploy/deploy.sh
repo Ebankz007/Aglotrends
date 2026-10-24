@@ -68,6 +68,8 @@ RECONCILE_EVERY_MIN=10
 # live account: TRC20 (2 receiving addresses) and BEP20 (1) exist; ERC20 has
 # none until an address is added in the Pay2Crypto dashboard.
 SYNC_NETWORKS="trc20,bep20"
+# Callback capture is closed; keep the variable defined (set -u) but empty.
+WEBHOOK_CAPTURE=""
 # ── Callback capture window (CLOSED) ─────────────────────────
 # Pay2Crypto signs every callback (`x-p2c-signature: t=…,v1=…`) as
 # `HMAC-SHA256(secret, "${timestamp}.${rawBody}")` with the exact raw body.

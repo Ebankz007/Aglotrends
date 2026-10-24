@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: "Aglotrends — Copy Trading, Signals & Community",
   description:
     "Aglotrends connects you to partner brokers, publishes professional trading signals, and runs a referral network with a transparent, auditable compensation engine.",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml", sizes: "32x32" }],
+    apple: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export const viewport: Viewport = {
